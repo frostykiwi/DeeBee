@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 from rich.console import Console
@@ -16,14 +15,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "path",
         nargs="?",
-        default=os.getcwd(),
+        default=str(Path.cwd()),
         help="Directory containing movie files to process",
-    )
-    parser.add_argument(
-        "--api-key",
-        dest="api_key",
-        default=os.environ.get("IMDB_API_KEY"),
-        help="API key for imdbapi.dev (defaults to IMDB_API_KEY env var)",
     )
     parser.add_argument(
         "--execute",
@@ -44,11 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if not args.api_key:
-        parser.error("An API key is required. Set --api-key or IMDB_API_KEY environment variable.")
-
     console = Console()
-    imdb_client = IMDBClient(args.api_key)
+    imdb_client = IMDBClient()
     renamer = MovieRenamer(imdb_client, console)
 
     directory = Path(args.path)

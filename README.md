@@ -7,7 +7,6 @@ accordingly.
 ## Requirements
 
 * Python 3.10+
-* An imdbapi.dev API key
 
 ## Installation
 
@@ -18,7 +17,6 @@ pip install -e .
 ## Usage
 
 ```bash
-export IMDB_API_KEY="your-api-key"
 # Dry run (default):
 db /path/to/movies
 
@@ -35,7 +33,6 @@ leaves the file untouched.
 Prefer a windowed interface? Launch the experimental Tkinter application:
 
 ```bash
-export IMDB_API_KEY="your-api-key"
 db-gui
 ```
 
