@@ -1,6 +1,7 @@
 """Filesystem utilities for DeeBee."""
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,9 @@ from typing import Callable, Iterable, List, Optional, Protocol, TypeVar, Generi
 
 from rich.console import Console
 from rich.table import Table
+
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -149,12 +153,21 @@ class MovieRenamer(Generic[TMetadata]):
         ``False`` the filesystem is modified accordingly.
         """
 
-        movie_files = self._discover_movie_files(directory)
+        movie_files = list(self._discover_movie_files(directory))
+        logger.debug("Discovered %d candidate file(s) in %s", len(movie_files), directory)
         selected_candidates: List[MovieCandidate[TMetadata]] = []
 
         for movie_file in movie_files:
+            logger.debug("Processing file: %s", movie_file)
             query = self._guess_search_query(movie_file)
+            logger.debug("Search query for %s resolved to '%s'", movie_file.name, query)
             results = self._imdb_client.search(query, limit=search_limit)
+            logger.debug(
+                "Received %d result(s) for query '%s' (limit=%d)",
+                len(results),
+                query,
+                search_limit,
+            )
             if not results:
                 self._console.print(f"[yellow]No matches found for:[/] {movie_file.name}")
                 continue
@@ -175,14 +188,23 @@ class MovieRenamer(Generic[TMetadata]):
         return selected_candidates
 
     def _discover_movie_files(self, directory: Path) -> Iterable[Path]:
-        return sorted(p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".avi"})
+        files = sorted(
+            p
+            for p in directory.iterdir()
+            if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".avi"}
+        )
+        logger.debug("Filtered %d supported media file(s) in %s", len(files), directory)
+        return files
 
     def _guess_search_query(self, path: Path) -> str:
         base = path.stem
+        logger.debug("Original filename stem for %s: '%s'", path.name, base)
         base = base.replace(".", " ")
         base = INVALID_FILENAME_CHARS.sub(" ", base)
         base = re.sub(r"\s+", " ", base)
-        return base.strip()
+        query = base.strip()
+        logger.debug("Normalized search query for %s: '%s'", path.name, query)
+        return query
 
     def _prompt_for_choice(
         self, file_path: Path, matches: List[TMetadata]

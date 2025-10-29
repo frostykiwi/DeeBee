@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional, TYPE_CHECKING
@@ -13,6 +14,9 @@ except ImportError:  # pragma: no cover
 
 if TYPE_CHECKING:  # pragma: no cover
     import requests as requests_type
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,6 +43,13 @@ class TVDBSeries:
             year_value = first_aired.split("-", 1)[0]
         elif isinstance(first_aired, int):
             year_value = str(first_aired)
+
+        logger.debug(
+            "Parsed TVDB series payload with id=%s name='%s' year=%s",
+            payload.get("id"),
+            name,
+            year_value,
+        )
 
         return cls(
             id=payload.get("id") or 0,
@@ -107,10 +118,16 @@ class TheTVDBClient:
         """Search for series on TheTVDB matching ``query``."""
 
         if not query.strip():
+            logger.debug("Ignoring blank search query for TheTVDB lookup")
             return []
 
         headers = self._authorized_headers()
         params = {"q": query, "type": "series"}
+        logger.debug(
+            "Requesting TVDB search for query='%s' with limit=%d",
+            query,
+            min(max(limit, 1), 50),
+        )
         response = self._session.get(f"{self._base_url}/search", params=params, headers=headers)
         if response.status_code == 401:
             # Token expired – refresh once.
@@ -122,5 +139,6 @@ class TheTVDBClient:
         payload = response.json()
         results: Iterable[dict] = payload.get("data", [])
         series_list = [TVDBSeries.from_dict(item) for item in results]
+        logger.debug("TVDB query '%s' returned %d result(s)", query, len(series_list))
         normalized_limit = min(max(limit, 1), 50)
         return series_list[:normalized_limit]
