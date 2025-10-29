@@ -199,7 +199,7 @@ class DeeBeeApp:
         api_frame = ttk.Frame(dialog)
         api_label = ttk.Label(api_frame, text="TheTVDB API key:")
         api_entry = ttk.Entry(api_frame, textvariable=api_key_var, width=40)
-        pin_label = ttk.Label(api_frame, text="TheTVDB PIN:")
+        pin_label = ttk.Label(api_frame, text="TheTVDB PIN (optional):")
         pin_entry = ttk.Entry(api_frame, textvariable=pin_var, width=40, show="*")
         api_label.grid(row=0, column=0, sticky=tk.W)
         api_entry.grid(row=0, column=1, sticky=tk.EW, padx=(5, 0))
@@ -224,10 +224,10 @@ class DeeBeeApp:
             selected_mode = mode_var.get()
             api_key_value = api_key_var.get().strip()
             pin_value = pin_var.get().strip()
-            if selected_mode == "tv" and (not api_key_value or not pin_value):
+            if selected_mode == "tv" and not api_key_value:
                 messagebox.showerror(
                     "Credentials required",
-                    "Please provide both a TheTVDB API key and PIN to use TV mode.",
+                    "Please provide a TheTVDB API key to use TV mode.",
                     parent=dialog,
                 )
                 return
@@ -328,10 +328,10 @@ class DeeBeeApp:
 
         try:
             if self._mode == "tv":
-                if not self._tvdb_api_key or not self._tvdb_pin:
+                if not self._tvdb_api_key:
                     messagebox.showerror(
                         "Credentials required",
-                        "A TheTVDB API key and PIN are required to use TV mode.",
+                        "A TheTVDB API key is required to use TV mode.",
                     )
                     return
                 data_client = TheTVDBClient(api_key=self._tvdb_api_key, pin=self._tvdb_pin)
