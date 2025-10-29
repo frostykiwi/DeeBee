@@ -1,6 +1,7 @@
 """Client for interacting with imdbapi.dev."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, TYPE_CHECKING
 
@@ -11,6 +12,9 @@ except ImportError:  # pragma: no cover
 
 if TYPE_CHECKING:  # pragma: no cover
     import requests as requests_type
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -89,6 +93,7 @@ class IMDBClient:
         """Search for a movie title using the imdbapi.dev title endpoint."""
 
         if not query.strip():
+            logger.debug("Ignoring blank search query for IMDB lookup")
             return []
 
         params = {"query": query, "limit": min(max(limit, 1), 50)}
@@ -97,6 +102,8 @@ class IMDBClient:
         # imdbapi.dev endpoint is fully open. If the service ever requires
         # tokens, the commented logic below can be restored.
         # headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        logger.debug("Requesting IMDB titles with query='%s' and limit=%d", query, params["limit"])
+
         response = self._session.get(
             f"{self._base_url}/search/titles",
             params=params,
@@ -106,4 +113,6 @@ class IMDBClient:
         payload = response.json()
 
         results: Iterable[dict] = payload.get("titles") or payload.get("results", [])
-        return [IMDBMovie.from_dict(item) for item in results]
+        movies = [IMDBMovie.from_dict(item) for item in results]
+        logger.debug("IMDB query '%s' returned %d result(s)", query, len(movies))
+        return movies

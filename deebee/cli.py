@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from rich.console import Console
 
 from .imdb_client import IMDBClient
 from .renamer import DEFAULT_RENAME_FORMAT_KEY, MovieRenamer
+
+
+LOG_LEVEL_CHOICES = ["critical", "error", "warning", "info", "debug"]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,12 +43,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RENAME_FORMAT_KEY,
         help=f"Filename format to use. Available options: {format_descriptions}",
     )
+    parser.add_argument(
+        "--log-level",
+        choices=LOG_LEVEL_CHOICES,
+        default="warning",
+        help=(
+            "Python logging level to use for troubleshooting output. "
+            "Use 'debug' to trace filename normalization and API requests."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    logging.basicConfig(level=getattr(logging, args.log_level.upper()))
 
     console = Console()
     imdb_client = IMDBClient()
