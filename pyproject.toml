@@ -19,6 +19,7 @@ test = [
 
 [project.scripts]
 db = "deebee.cli:main"
+db-gui = "deebee.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
