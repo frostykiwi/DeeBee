@@ -33,6 +33,7 @@ class GUIMovieRenamer(MovieRenamer):
         super().__init__(imdb_client, console=None, rename_format=rename_format)
         self._root = root
         self._log = log_callback or (lambda message: None)
+        self._stop_requested = False
 
     def process_directory(
         self,
@@ -41,6 +42,7 @@ class GUIMovieRenamer(MovieRenamer):
         dry_run: bool = True,
         search_limit: int = 10,
     ) -> List[MovieCandidate]:
+        self._stop_requested = False
         movie_files = list(self._discover_movie_files(directory))
         if not movie_files:
             self._log("No supported movie files were found in the selected directory.")
@@ -57,6 +59,9 @@ class GUIMovieRenamer(MovieRenamer):
                 continue
 
             chosen = self._prompt_for_choice(movie_file, results)
+            if self._stop_requested:
+                self._log("Processing stopped by user.")
+                break
             if chosen is None:
                 self._log(f"Skipped {movie_file.name}.")
                 continue
@@ -107,8 +112,14 @@ class GUIMovieRenamer(MovieRenamer):
             selection["value"] = None
             dialog.destroy()
 
+        def on_stop() -> None:
+            self._stop_requested = True
+            selection["value"] = None
+            dialog.destroy()
+
         ttk.Button(button_frame, text="Select", command=on_select).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="Skip", command=on_skip).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Stop", command=on_stop).pack(side=tk.LEFT, padx=(5, 0))
 
         listbox.focus_set()
         if listbox.size() > 0:
