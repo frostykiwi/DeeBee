@@ -1,0 +1,28 @@
+[project]
+name = "deebee"
+version = "0.1.0"
+description = "CLI tool for organizing movie folders via the imdbapi.dev service"
+authors = [
+  { name = "DeeBee" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "requests>=2.31.0",
+  "rich>=13.7.0"
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.4.0"
+]
+
+[project.scripts]
+db = "deebee.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[build-system]
+requires = ["setuptools>=67.0"]
+build-backend = "setuptools.build_meta"
