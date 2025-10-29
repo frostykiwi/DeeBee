@@ -4,12 +4,28 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional, Protocol, TypeVar, Generic
 
 from rich.console import Console
 from rich.table import Table
 
-from .imdb_client import IMDBClient, IMDBMovie
+
+
+class MediaMetadata(Protocol):
+    """Protocol describing the fields required for rename operations."""
+
+    title: str
+    year: Optional[str]
+
+
+TMetadata = TypeVar("TMetadata", bound=MediaMetadata)
+
+
+class MediaSearchClient(Protocol[TMetadata]):
+    """Protocol describing a metadata search client."""
+
+    def search(self, query: str, *, limit: int = 10) -> List[TMetadata]:  # pragma: no cover - protocol definition
+        """Return search results for the provided query."""
 
 INVALID_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.\- ]+")
 
@@ -74,11 +90,11 @@ def _sanitize_title(title: str) -> str:
 
 
 @dataclass
-class MovieCandidate:
+class MovieCandidate(Generic[TMetadata]):
     """Mapping between a file path and a proposed movie metadata match."""
 
     original_path: Path
-    movie: IMDBMovie
+    movie: TMetadata
     format_spec: RenameFormatSpec
 
     @property
@@ -92,12 +108,12 @@ class MovieCandidate:
         return self.original_path.with_name(self.proposed_filename)
 
 
-class MovieRenamer:
+class MovieRenamer(Generic[TMetadata]):
     """Core orchestrator for scanning directories and renaming movie files."""
 
     def __init__(
         self,
-        imdb_client: IMDBClient,
+        imdb_client: MediaSearchClient[TMetadata],
         console: Optional[Console] = None,
         *,
         rename_format: str = DEFAULT_RENAME_FORMAT_KEY,
@@ -126,7 +142,7 @@ class MovieRenamer:
         *,
         dry_run: bool = True,
         search_limit: int = 10,
-    ) -> List[MovieCandidate]:
+    ) -> List[MovieCandidate[TMetadata]]:
         """Process a directory containing movie files.
 
         Returns the chosen mappings for inspection by callers. When ``dry_run`` is
@@ -134,7 +150,7 @@ class MovieRenamer:
         """
 
         movie_files = self._discover_movie_files(directory)
-        selected_candidates: List[MovieCandidate] = []
+        selected_candidates: List[MovieCandidate[TMetadata]] = []
 
         for movie_file in movie_files:
             query = self._guess_search_query(movie_file)
@@ -168,7 +184,9 @@ class MovieRenamer:
         base = re.sub(r"\s+", " ", base)
         return base.strip()
 
-    def _prompt_for_choice(self, file_path: Path, matches: List[IMDBMovie]) -> Optional[IMDBMovie]:
+    def _prompt_for_choice(
+        self, file_path: Path, matches: List[TMetadata]
+    ) -> Optional[TMetadata]:
         table = Table(title=f"Matches for {file_path.name}")
         table.add_column("Index", justify="right")
         table.add_column("Title")
