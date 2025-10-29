@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from .imdb_client import IMDBClient
-from .renamer import MovieRenamer
+from .renamer import DEFAULT_RENAME_FORMAT_KEY, MovieRenamer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +30,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="Maximum number of IMDB results to present",
     )
+    formats = MovieRenamer.available_formats()
+    format_descriptions = ", ".join(f"{spec.key}: {spec.label}" for spec in formats)
+    parser.add_argument(
+        "--format",
+        dest="rename_format",
+        choices=[spec.key for spec in formats],
+        default=DEFAULT_RENAME_FORMAT_KEY,
+        help=f"Filename format to use. Available options: {format_descriptions}",
+    )
     return parser
 
 
@@ -39,7 +48,11 @@ def main(argv: list[str] | None = None) -> int:
 
     console = Console()
     imdb_client = IMDBClient()
-    renamer = MovieRenamer(imdb_client, console)
+    renamer = MovieRenamer(
+        imdb_client,
+        console,
+        rename_format=args.rename_format,
+    )
 
     directory = Path(args.path)
     if not directory.exists() or not directory.is_dir():

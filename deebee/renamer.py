@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 from rich.console import Console
 from rich.table import Table
@@ -13,6 +13,65 @@ from .imdb_client import IMDBClient, IMDBMovie
 
 INVALID_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.\- ]+")
 
+NameBuilder = Callable[[str, Optional[str]], str]
+
+
+@dataclass(frozen=True)
+class RenameFormatSpec:
+    """Description of an available rename format."""
+
+    key: str
+    label: str
+    builder: NameBuilder
+
+    def build_name(self, title: str, year: Optional[str]) -> str:
+        """Return the filename (without extension) for the provided metadata."""
+
+        name = self.builder(title, year)
+        name = re.sub(r"\s+", " ", name).strip()
+        return name or title
+
+
+def _format_title_year(title: str, year: Optional[str]) -> str:
+    return f"{title} ({year})" if year else title
+
+
+def _format_title_dash_year(title: str, year: Optional[str]) -> str:
+    return f"{title} - {year}" if year else title
+
+
+def _format_year_dash_title(title: str, year: Optional[str]) -> str:
+    return f"{year} - {title}" if year else title
+
+
+def _format_title_only(title: str, year: Optional[str]) -> str:  # noqa: ARG001
+    return title
+
+
+def _format_title_brackets_year(title: str, year: Optional[str]) -> str:
+    return f"{title} [{year}]" if year else title
+
+
+AVAILABLE_RENAME_FORMATS = {
+    "title_year": RenameFormatSpec("title_year", "Title (Year)", _format_title_year),
+    "title_dash_year": RenameFormatSpec("title_dash_year", "Title - Year", _format_title_dash_year),
+    "year_dash_title": RenameFormatSpec("year_dash_title", "Year - Title", _format_year_dash_title),
+    "title_only": RenameFormatSpec("title_only", "Title", _format_title_only),
+    "title_brackets_year": RenameFormatSpec(
+        "title_brackets_year",
+        "Title [Year]",
+        _format_title_brackets_year,
+    ),
+}
+
+DEFAULT_RENAME_FORMAT_KEY = "title_year"
+
+
+def _sanitize_title(title: str) -> str:
+    sanitized = INVALID_FILENAME_CHARS.sub("", title)
+    sanitized = re.sub(r"\s+", " ", sanitized)
+    return sanitized.strip()
+
 
 @dataclass
 class MovieCandidate:
@@ -20,13 +79,13 @@ class MovieCandidate:
 
     original_path: Path
     movie: IMDBMovie
+    format_spec: RenameFormatSpec
 
     @property
     def proposed_filename(self) -> str:
-        sanitized_title = INVALID_FILENAME_CHARS.sub("", self.movie.title)
-        if self.movie.year:
-            return f"{sanitized_title} ({self.movie.year}){self.original_path.suffix}"
-        return f"{sanitized_title}{self.original_path.suffix}"
+        sanitized_title = _sanitize_title(self.movie.title)
+        filename = self.format_spec.build_name(sanitized_title, self.movie.year)
+        return f"{filename}{self.original_path.suffix}"
 
     @property
     def proposed_path(self) -> Path:
@@ -36,9 +95,30 @@ class MovieCandidate:
 class MovieRenamer:
     """Core orchestrator for scanning directories and renaming movie files."""
 
-    def __init__(self, imdb_client: IMDBClient, console: Optional[Console] = None) -> None:
+    def __init__(
+        self,
+        imdb_client: IMDBClient,
+        console: Optional[Console] = None,
+        *,
+        rename_format: str = DEFAULT_RENAME_FORMAT_KEY,
+    ) -> None:
         self._imdb_client = imdb_client
         self._console = console or Console()
+        self._format_spec = self._resolve_format(rename_format)
+
+    @staticmethod
+    def available_formats() -> List[RenameFormatSpec]:
+        """Return the available rename format specifications."""
+
+        return list(AVAILABLE_RENAME_FORMATS.values())
+
+    @staticmethod
+    def _resolve_format(key: str) -> RenameFormatSpec:
+        try:
+            return AVAILABLE_RENAME_FORMATS[key]
+        except KeyError as exc:  # pragma: no cover - defensive programming
+            available = ", ".join(sorted(AVAILABLE_RENAME_FORMATS))
+            raise ValueError(f"Unknown rename format '{key}'. Available: {available}") from exc
 
     def process_directory(
         self,
@@ -67,7 +147,7 @@ class MovieRenamer:
             if chosen is None:
                 continue
 
-            candidate = MovieCandidate(movie_file, chosen)
+            candidate = MovieCandidate(movie_file, chosen, self._format_spec)
             selected_candidates.append(candidate)
 
             if dry_run:
