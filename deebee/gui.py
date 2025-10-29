@@ -156,6 +156,7 @@ class DeeBeeApp:
         self._path_var = tk.StringVar(value=str(Path.cwd()))
         self._limit_var = tk.IntVar(value=10)
         self._dry_run_var = tk.BooleanVar(value=True)
+        self._logging_enabled_var = tk.BooleanVar(value=True)
         self._format_options = [
             (spec.key, spec.label) for spec in MovieRenamer.available_formats()
         ]
@@ -264,6 +265,13 @@ class DeeBeeApp:
         )
         format_combo.grid(row=3, column=1, sticky=tk.W, pady=2)
 
+        logging_check = ttk.Checkbutton(
+            main_frame,
+            text="Enable logging",
+            variable=self._logging_enabled_var,
+        )
+        logging_check.grid(row=3, column=2, sticky=tk.W)
+
         self._log_widget = tk.Text(main_frame, height=12, state=tk.DISABLED)
         self._log_widget.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW, pady=(10, 0))
 
@@ -285,6 +293,9 @@ class DeeBeeApp:
             self._path_var.set(directory)
 
     def _append_log(self, message: str) -> None:
+        if not self._logging_enabled_var.get():
+            return
+
         self._log_widget.configure(state=tk.NORMAL)
         self._log_widget.insert(tk.END, message + "\n")
         self._log_widget.configure(state=tk.DISABLED)
