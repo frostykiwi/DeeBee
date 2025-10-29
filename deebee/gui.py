@@ -148,6 +148,7 @@ class DeeBeeApp:
 
         self._mode: str = "movie"
         self._tvdb_api_key: Optional[str] = None
+        self._tvdb_pin: Optional[str] = None
         self._mode_label_var = tk.StringVar()
 
         self._prompt_mode_selection()
@@ -185,6 +186,7 @@ class DeeBeeApp:
 
         mode_var = tk.StringVar(value=self._mode)
         api_key_var = tk.StringVar(value=self._tvdb_api_key or "")
+        pin_var = tk.StringVar(value=self._tvdb_pin or "")
 
         ttk.Label(dialog, text="Choose the data source to use before continuing.").pack(padx=10, pady=(10, 5))
 
@@ -197,8 +199,12 @@ class DeeBeeApp:
         api_frame = ttk.Frame(dialog)
         api_label = ttk.Label(api_frame, text="TheTVDB API key:")
         api_entry = ttk.Entry(api_frame, textvariable=api_key_var, width=40)
+        pin_label = ttk.Label(api_frame, text="TheTVDB PIN:")
+        pin_entry = ttk.Entry(api_frame, textvariable=pin_var, width=40, show="*")
         api_label.grid(row=0, column=0, sticky=tk.W)
         api_entry.grid(row=0, column=1, sticky=tk.EW, padx=(5, 0))
+        pin_label.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
+        pin_entry.grid(row=1, column=1, sticky=tk.EW, padx=(5, 0), pady=(5, 0))
         api_frame.columnconfigure(1, weight=1)
 
         def update_api_visibility(*_: object) -> None:
@@ -217,16 +223,18 @@ class DeeBeeApp:
         def on_continue() -> None:
             selected_mode = mode_var.get()
             api_key_value = api_key_var.get().strip()
-            if selected_mode == "tv" and not api_key_value:
+            pin_value = pin_var.get().strip()
+            if selected_mode == "tv" and (not api_key_value or not pin_value):
                 messagebox.showerror(
-                    "API key required",
-                    "Please provide a TheTVDB API key to use TV mode.",
+                    "Credentials required",
+                    "Please provide both a TheTVDB API key and PIN to use TV mode.",
                     parent=dialog,
                 )
                 return
 
             self._mode = selected_mode
             self._tvdb_api_key = api_key_value or None
+            self._tvdb_pin = pin_value or None
             self._update_window_title()
             self._update_mode_label()
             dialog.destroy()
@@ -320,13 +328,13 @@ class DeeBeeApp:
 
         try:
             if self._mode == "tv":
-                if not self._tvdb_api_key:
+                if not self._tvdb_api_key or not self._tvdb_pin:
                     messagebox.showerror(
-                        "API key required",
-                        "A TheTVDB API key is required to use TV mode.",
+                        "Credentials required",
+                        "A TheTVDB API key and PIN are required to use TV mode.",
                     )
                     return
-                data_client = TheTVDBClient(api_key=self._tvdb_api_key)
+                data_client = TheTVDBClient(api_key=self._tvdb_api_key, pin=self._tvdb_pin)
             else:
                 data_client = IMDBClient()
         except Exception as exc:  # pragma: no cover - user feedback path
