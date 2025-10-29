@@ -10,9 +10,26 @@ accordingly.
 
 ## Installation
 
-```bash
-pip install -e .
-```
+1. Clone the repository and move into the project directory:
+
+   ```bash
+   git clone https://github.com/<your-account>/DeeBee.git
+   cd DeeBee
+   ```
+
+2. (Optional) Create and activate a virtual environment:
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. Install DeeBee in editable mode so command-line changes are immediately
+   reflected:
+
+   ```bash
+   pip install -e .
+   ```
 
 ## Usage
 
