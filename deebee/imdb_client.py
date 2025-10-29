@@ -80,6 +80,9 @@ class IMDBClient:
 
         self._session = session or requests.Session()
         self._base_url = base_url.rstrip("/")
+        # imdbapi.dev does not require authentication. The attribute is retained
+        # to avoid breaking callers that still pass an ``api_key`` argument in
+        # anticipation of the service introducing tokens in the future.
         self._api_key = api_key
 
     def search(self, query: str, *, limit: int = 10) -> List[IMDBMovie]:
@@ -90,8 +93,15 @@ class IMDBClient:
 
         params = {"query": query, "limit": min(max(limit, 1), 50)}
 
-        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
-        response = self._session.get(f"{self._base_url}/search/titles", params=params, headers=headers)
+        # Authentication headers are intentionally omitted because the public
+        # imdbapi.dev endpoint is fully open. If the service ever requires
+        # tokens, the commented logic below can be restored.
+        # headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        response = self._session.get(
+            f"{self._base_url}/search/titles",
+            params=params,
+            # headers=headers,
+        )
         response.raise_for_status()
         payload = response.json()
 
