@@ -1,7 +1,7 @@
 """Basic Tkinter-based graphical interface for DeeBee."""
+
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Callable, List, Optional
 
@@ -115,7 +115,6 @@ class DeeBeeApp:
         root.title("DeeBee")
         root.geometry("600x400")
 
-        self._api_key_var = tk.StringVar(value=os.environ.get("IMDB_API_KEY", ""))
         self._path_var = tk.StringVar(value=str(Path.cwd()))
         self._limit_var = tk.IntVar(value=10)
         self._dry_run_var = tk.BooleanVar(value=True)
@@ -126,36 +125,32 @@ class DeeBeeApp:
         main_frame = ttk.Frame(self._root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text="IMDB API Key:").grid(row=0, column=0, sticky=tk.W)
-        api_entry = ttk.Entry(main_frame, textvariable=self._api_key_var, width=40)
-        api_entry.grid(row=0, column=1, columnspan=2, sticky=tk.EW, pady=2)
-
-        ttk.Label(main_frame, text="Directory:").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(main_frame, text="Directory:").grid(row=0, column=0, sticky=tk.W)
         path_entry = ttk.Entry(main_frame, textvariable=self._path_var, width=40)
-        path_entry.grid(row=1, column=1, sticky=tk.EW, pady=2)
-        ttk.Button(main_frame, text="Browse", command=self._choose_directory).grid(row=1, column=2, padx=(5, 0))
+        path_entry.grid(row=0, column=1, sticky=tk.EW, pady=2)
+        ttk.Button(main_frame, text="Browse", command=self._choose_directory).grid(row=0, column=2, padx=(5, 0))
 
-        ttk.Label(main_frame, text="Result limit:").grid(row=2, column=0, sticky=tk.W)
+        ttk.Label(main_frame, text="Result limit:").grid(row=1, column=0, sticky=tk.W)
         limit_spin = ttk.Spinbox(main_frame, from_=1, to=50, textvariable=self._limit_var, width=5)
-        limit_spin.grid(row=2, column=1, sticky=tk.W, pady=2)
+        limit_spin.grid(row=1, column=1, sticky=tk.W, pady=2)
 
         dry_run_check = ttk.Checkbutton(main_frame, text="Dry run (no changes)", variable=self._dry_run_var)
-        dry_run_check.grid(row=2, column=2, sticky=tk.W)
+        dry_run_check.grid(row=1, column=2, sticky=tk.W)
 
         self._log_widget = tk.Text(main_frame, height=12, state=tk.DISABLED)
-        self._log_widget.grid(row=3, column=0, columnspan=3, sticky=tk.NSEW, pady=(10, 0))
+        self._log_widget.grid(row=2, column=0, columnspan=3, sticky=tk.NSEW, pady=(10, 0))
 
         scrollbar = ttk.Scrollbar(main_frame, command=self._log_widget.yview)
-        scrollbar.grid(row=3, column=3, sticky=tk.NS)
+        scrollbar.grid(row=2, column=3, sticky=tk.NS)
         self._log_widget.configure(yscrollcommand=scrollbar.set)
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=3, pady=10)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
 
         ttk.Button(button_frame, text="Start", command=self._start_processing).pack(side=tk.LEFT, padx=5)
 
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(2, weight=1)
 
     def _choose_directory(self) -> None:
         directory = filedialog.askdirectory(initialdir=self._path_var.get() or None)
@@ -171,11 +166,6 @@ class DeeBeeApp:
 
     def _start_processing(self) -> None:
         directory = Path(self._path_var.get()).expanduser()
-        api_key = self._api_key_var.get().strip()
-
-        if not api_key:
-            messagebox.showerror("Missing API key", "Please provide an imdbapi.dev API key.")
-            return
 
         if not directory.exists() or not directory.is_dir():
             messagebox.showerror("Invalid directory", f"{directory} is not a valid directory.")
@@ -188,7 +178,7 @@ class DeeBeeApp:
             return
 
         self._append_log(f"Starting scan in {directory}...")
-        imdb_client = IMDBClient(api_key)
+        imdb_client = IMDBClient()
         renamer = GUIMovieRenamer(imdb_client, self._root, self._append_log)
 
         try:
