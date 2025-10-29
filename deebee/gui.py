@@ -9,7 +9,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .imdb_client import IMDBClient, IMDBMovie
-from .renamer import MovieRenamer, MovieCandidate
+from .renamer import (
+    DEFAULT_RENAME_FORMAT_KEY,
+    MovieCandidate,
+    MovieRenamer,
+)
 
 
 LogCallback = Callable[[str], None]
@@ -18,8 +22,15 @@ LogCallback = Callable[[str], None]
 class GUIMovieRenamer(MovieRenamer):
     """Movie renamer that interacts with a Tkinter UI instead of the console."""
 
-    def __init__(self, imdb_client: IMDBClient, root: tk.Misc, log_callback: Optional[LogCallback] = None) -> None:
-        super().__init__(imdb_client, console=None)
+    def __init__(
+        self,
+        imdb_client: IMDBClient,
+        root: tk.Misc,
+        log_callback: Optional[LogCallback] = None,
+        *,
+        rename_format: str = DEFAULT_RENAME_FORMAT_KEY,
+    ) -> None:
+        super().__init__(imdb_client, console=None, rename_format=rename_format)
         self._root = root
         self._log = log_callback or (lambda message: None)
 
@@ -50,7 +61,7 @@ class GUIMovieRenamer(MovieRenamer):
                 self._log(f"Skipped {movie_file.name}.")
                 continue
 
-            candidate = MovieCandidate(movie_file, chosen)
+            candidate = MovieCandidate(movie_file, chosen, self._format_spec)
             selected_candidates.append(candidate)
 
             if dry_run:
@@ -118,6 +129,14 @@ class DeeBeeApp:
         self._path_var = tk.StringVar(value=str(Path.cwd()))
         self._limit_var = tk.IntVar(value=10)
         self._dry_run_var = tk.BooleanVar(value=True)
+        self._format_options = [
+            (spec.key, spec.label) for spec in MovieRenamer.available_formats()
+        ]
+        default_label = next(
+            (label for key, label in self._format_options if key == DEFAULT_RENAME_FORMAT_KEY),
+            self._format_options[0][1],
+        )
+        self._format_var = tk.StringVar(value=default_label)
 
         self._build_widgets()
 
@@ -137,20 +156,30 @@ class DeeBeeApp:
         dry_run_check = ttk.Checkbutton(main_frame, text="Dry run (no changes)", variable=self._dry_run_var)
         dry_run_check.grid(row=1, column=2, sticky=tk.W)
 
+        ttk.Label(main_frame, text="Filename format:").grid(row=2, column=0, sticky=tk.W)
+        format_combo = ttk.Combobox(
+            main_frame,
+            textvariable=self._format_var,
+            values=[label for _, label in self._format_options],
+            state="readonly",
+            width=20,
+        )
+        format_combo.grid(row=2, column=1, sticky=tk.W, pady=2)
+
         self._log_widget = tk.Text(main_frame, height=12, state=tk.DISABLED)
-        self._log_widget.grid(row=2, column=0, columnspan=3, sticky=tk.NSEW, pady=(10, 0))
+        self._log_widget.grid(row=3, column=0, columnspan=3, sticky=tk.NSEW, pady=(10, 0))
 
         scrollbar = ttk.Scrollbar(main_frame, command=self._log_widget.yview)
-        scrollbar.grid(row=2, column=3, sticky=tk.NS)
+        scrollbar.grid(row=3, column=3, sticky=tk.NS)
         self._log_widget.configure(yscrollcommand=scrollbar.set)
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
+        button_frame.grid(row=4, column=0, columnspan=3, pady=10)
 
         ttk.Button(button_frame, text="Start", command=self._start_processing).pack(side=tk.LEFT, padx=5)
 
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(2, weight=1)
+        main_frame.rowconfigure(3, weight=1)
 
     def _choose_directory(self) -> None:
         directory = filedialog.askdirectory(initialdir=self._path_var.get() or None)
@@ -179,7 +208,20 @@ class DeeBeeApp:
 
         self._append_log(f"Starting scan in {directory}...")
         imdb_client = IMDBClient()
-        renamer = GUIMovieRenamer(imdb_client, self._root, self._append_log)
+        try:
+            rename_format = next(
+                key for key, label in self._format_options if label == self._format_var.get()
+            )
+        except StopIteration:  # pragma: no cover - safeguarded UI state
+            messagebox.showerror("Invalid format", "Selected filename format is not valid.")
+            return
+
+        renamer = GUIMovieRenamer(
+            imdb_client,
+            self._root,
+            self._append_log,
+            rename_format=rename_format,
+        )
 
         try:
             renamer.process_directory(directory, dry_run=self._dry_run_var.get(), search_limit=limit)
