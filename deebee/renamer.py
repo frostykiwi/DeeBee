@@ -33,6 +33,7 @@ class MediaSearchClient(Protocol[TMetadata]):
         """Return search results for the provided query."""
 
 INVALID_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.\- ]+")
+YEAR_TOKEN_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
 SEASON_EPISODE_PATTERNS = (
     re.compile(r"(?i)\bS(?P<season>\d{1,3})[ ._-]*E(?P<episode>\d{1,3})\b"),
     re.compile(r"(?i)\b(?P<season>\d{1,3})x(?P<episode>\d{1,3})\b"),
@@ -350,6 +351,11 @@ class MovieRenamer(Generic[TMetadata]):
         base = INVALID_FILENAME_CHARS.sub(" ", base)
         base = re.sub(r"\s+", " ", base)
         base = _strip_trailing_release_tokens(base)
+
+        if season_number is not None or episode_number is not None:
+            base = YEAR_TOKEN_PATTERN.sub(" ", base)
+            base = re.sub(r"\s+", " ", base)
+
         query = base.strip()
         logger.debug("Normalized search query for %s: '%s'", path.name, query)
 

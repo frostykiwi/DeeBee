@@ -61,6 +61,20 @@ def test_prepare_search_extracts_episode_numbers(tv_episode: Path) -> None:
     assert search_info.episode_number == 3
 
 
+def test_prepare_search_ignores_year_for_tv_episode(tmp_path: Path) -> None:
+    episode_path = tmp_path / "Doctor.Who.2005.S01E01.mkv"
+    episode_path.write_text("dummy")
+
+    client = DummyClient([])
+    renamer = MovieRenamer(client, console=DummyConsole())
+
+    search_info = renamer._prepare_search(episode_path)
+
+    assert search_info.query == "Doctor Who"
+    assert search_info.season_number == 1
+    assert search_info.episode_number == 1
+
+
 def test_process_directory_dry_run(movie: Path) -> None:
     movie_info = IMDBMovie(id="tt0133093", title="The Matrix", year="1999")
     client = DummyClient([movie_info])
