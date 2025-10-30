@@ -253,7 +253,11 @@ class DeeBeeApp:
 
         if self._format_combo is not None:
             labels = [label for _, label in self._format_options]
-            self._format_combo.configure(values=labels)
+            width = max((len(label) for label in labels), default=20)
+            self._format_combo.configure(
+                values=labels,
+                width=min(width + 2, 80),
+            )
             self._format_combo.set(default_label)
 
     def _prompt_mode_selection(self) -> None:
@@ -357,14 +361,16 @@ class DeeBeeApp:
         dry_run_check.grid(row=2, column=2, sticky=tk.W)
 
         ttk.Label(main_frame, text="Filename format:").grid(row=3, column=0, sticky=tk.W)
+        format_labels = [label for _, label in self._format_options]
+        format_width = max((len(label) for label in format_labels), default=20)
         format_combo = ttk.Combobox(
             main_frame,
             textvariable=self._format_var,
-            values=[label for _, label in self._format_options],
+            values=format_labels,
             state="readonly",
-            width=20,
+            width=min(format_width + 2, 80),
         )
-        format_combo.grid(row=3, column=1, sticky=tk.W, pady=2)
+        format_combo.grid(row=3, column=1, sticky=tk.EW, pady=2)
         self._format_combo = format_combo
 
         logging_check = ttk.Checkbutton(
@@ -442,12 +448,17 @@ class DeeBeeApp:
             messagebox.showerror("Error", f"Unable to initialise data client: {exc}")
             return
         try:
+            selected_label = self._format_var.get()
             rename_format = next(
-                key for key, label in self._format_options if label == self._format_var.get()
+                key for key, label in self._format_options if label == selected_label
             )
         except StopIteration:  # pragma: no cover - safeguarded UI state
             messagebox.showerror("Invalid format", "Selected filename format is not valid.")
             return
+
+        self._append_log(
+            f"Using filename format: {selected_label} (key: {rename_format})"
+        )
 
         if self._mode == "tv":
             renamer = GUITVRenamer(
