@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Protocol, TypeVar, Generic
+from typing import Callable, Iterable, List, Optional, Protocol, Tuple, TypeVar, Generic
 
 from rich.console import Console
 from rich.table import Table
@@ -378,11 +378,22 @@ class MovieRenamer(Generic[TMetadata]):
             )
             selected_candidates.append(candidate)
 
+            target_path, adjusted = self._determine_target_path(candidate)
+            display_name = target_path.name
+
             if dry_run:
-                self._console.print(f"[cyan]DRY RUN:[/] {movie_file.name} -> {candidate.proposed_filename}")
+                self._console.print(f"[cyan]DRY RUN:[/] {movie_file.name} -> {display_name}")
+                if adjusted:
+                    self._console.print(
+                        f"[yellow]Note:[/] {candidate.proposed_filename} already exists. Would use {display_name} instead."
+                    )
             else:
-                self._console.print(f"Renaming {movie_file.name} -> {candidate.proposed_filename}")
-                movie_file.rename(candidate.proposed_path)
+                if adjusted:
+                    self._console.print(
+                        f"[yellow]Adjusted target to avoid overwrite:[/] {candidate.proposed_filename} -> {display_name}"
+                    )
+                self._console.print(f"Renaming {movie_file.name} -> {display_name}")
+                movie_file.rename(target_path)
 
         return selected_candidates
 
@@ -438,6 +449,22 @@ class MovieRenamer(Generic[TMetadata]):
         logger.debug("Normalized search query for %s: '%s'", path.name, query)
 
         return MediaSearchQuery(query=query, season_number=season_number, episode_number=episode_number)
+
+    def _determine_target_path(self, candidate: MovieCandidate[TMetadata]) -> Tuple[Path, bool]:
+        """Return a filesystem path for ``candidate`` that avoids clobbering existing files."""
+
+        proposed_path = candidate.proposed_path
+        if not proposed_path.exists():
+            return proposed_path, False
+
+        stem = proposed_path.stem
+        suffix = proposed_path.suffix
+        counter = 1
+        while True:
+            alternative = proposed_path.with_name(f"{stem} ({counter}){suffix}")
+            if not alternative.exists():
+                return alternative, True
+            counter += 1
 
     def _guess_search_query(self, path: Path) -> str:
         return self._prepare_search(path).query
