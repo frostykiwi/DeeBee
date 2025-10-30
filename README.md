@@ -13,7 +13,7 @@ accordingly.
 1. Clone the repository and move into the project directory:
 
    ```bash
-   git clone https://github.com/<your-account>/DeeBee.git
+   git clone https://github.com/frostykiwi/DeeBee.git
    cd DeeBee
    ```
 
