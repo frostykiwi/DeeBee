@@ -170,3 +170,45 @@ def test_show_numbers_format_appends_marker(tv_episode: Path) -> None:
 
     assert len(results) == 1
     assert results[0].proposed_filename == "The Expanse - S02E03.mkv"
+
+
+def test_show_episode_format_respects_selection(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata])
+    renamer = MovieRenamer(
+        client,
+        console=DummyConsole(["1"]),
+        rename_format="show_episode",
+        media_mode="tv",
+    )
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse - Static.mkv"
+
+
+def test_show_only_format_respects_selection(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata])
+    renamer = MovieRenamer(
+        client,
+        console=DummyConsole(["1"]),
+        rename_format="show_only",
+        media_mode="tv",
+    )
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse.mkv"
