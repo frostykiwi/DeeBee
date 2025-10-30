@@ -12,7 +12,6 @@ from .imdb_client import IMDBClient
 from .movie_renamer import DEFAULT_MOVIE_RENAME_FORMAT_KEY, MovieRenamer
 from .rename_common import MediaCandidate, MediaMetadata, MediaSearchClient
 from .tv_renamer import DEFAULT_TV_RENAME_FORMAT_KEY, TVRenamer
-from .tvdb_client import TheTVDBClient
 
 
 LogCallback = Callable[[str], None]
@@ -61,7 +60,7 @@ class GUIRenamerMixin(Generic[TMetadata]):
             self._log(
                 f"Searching matches for {media_file.name}{search_details} using query '{search_info.query}'..."
             )
-            results = self._media_client.search(search_info.query, limit=search_limit)
+            results = self._perform_search(search_info, search_limit)
             if not results:
                 self._log(f"No matches found for {media_file.name}.")
                 continue
@@ -196,8 +195,6 @@ class DeeBeeApp:
         root.geometry("600x400")
 
         self._mode: str = "movie"
-        self._tvdb_api_key: Optional[str] = None
-        self._tvdb_pin: Optional[str] = None
         self._mode_label_var = tk.StringVar()
         self._format_var = tk.StringVar()
         self._format_options: list[tuple[str, str]] = []
@@ -218,14 +215,14 @@ class DeeBeeApp:
         if self._mode == "movie":
             mode_display = "MOVIE MODE (IMDB API)"
         else:
-            mode_display = "TV MODE (TheTVDB API Tool)"
+            mode_display = "TV MODE (IMDB API)"
         self._root.title(f"DeeBee - {mode_display}")
 
     def _update_mode_label(self) -> None:
         if self._mode == "movie":
             mode_display = "MOVIE MODE (uses the IMDB API)"
         else:
-            mode_display = "TV MODE (uses TheTVDB API Tool)"
+            mode_display = "TV MODE (uses the IMDB API)"
         self._mode_label_var.set(f"Active Mode: {mode_display}")
 
     def _load_format_options(self) -> None:
@@ -267,15 +264,13 @@ class DeeBeeApp:
         dialog.grab_set()
 
         mode_var = tk.StringVar(value=self._mode)
-        api_key_var = tk.StringVar(value=self._tvdb_api_key or "")
-        pin_var = tk.StringVar(value=self._tvdb_pin or "")
 
         ttk.Label(
             dialog,
             text=(
                 "There are two independent modes:\n"
                 "• MOVIE MODE uses the IMDB API for films.\n"
-                "• TV MODE uses TheTVDB API Tool for series."
+                "• TV MODE uses the IMDB API for series."
             ),
             justify=tk.LEFT,
         ).pack(padx=10, pady=(10, 5))
@@ -284,47 +279,14 @@ class DeeBeeApp:
         radio_frame.pack(padx=10, pady=5, fill=tk.X)
 
         ttk.Radiobutton(radio_frame, text="Movies (IMDB)", variable=mode_var, value="movie").pack(anchor=tk.W)
-        ttk.Radiobutton(radio_frame, text="TV Shows (TheTVDB)", variable=mode_var, value="tv").pack(anchor=tk.W, pady=(2, 0))
-
-        api_frame = ttk.Frame(dialog)
-        api_label = ttk.Label(api_frame, text="TheTVDB API key:")
-        api_entry = ttk.Entry(api_frame, textvariable=api_key_var, width=40)
-        pin_label = ttk.Label(api_frame, text="TheTVDB PIN (optional):")
-        pin_entry = ttk.Entry(api_frame, textvariable=pin_var, width=40, show="*")
-        api_label.grid(row=0, column=0, sticky=tk.W)
-        api_entry.grid(row=0, column=1, sticky=tk.EW, padx=(5, 0))
-        pin_label.grid(row=1, column=0, sticky=tk.W, pady=(5, 0))
-        pin_entry.grid(row=1, column=1, sticky=tk.EW, padx=(5, 0), pady=(5, 0))
-        api_frame.columnconfigure(1, weight=1)
-
-        def update_api_visibility(*_: object) -> None:
-            if mode_var.get() == "tv":
-                api_frame.pack(padx=10, pady=(5, 0), fill=tk.X)
-                api_entry.focus_set()
-            else:
-                api_frame.pack_forget()
-
-        mode_var.trace_add("write", update_api_visibility)
-        update_api_visibility()
+        ttk.Radiobutton(radio_frame, text="TV Shows (IMDB)", variable=mode_var, value="tv").pack(anchor=tk.W, pady=(2, 0))
 
         button_frame = ttk.Frame(dialog)
         button_frame.pack(padx=10, pady=10)
 
         def on_continue() -> None:
             selected_mode = mode_var.get()
-            api_key_value = api_key_var.get().strip()
-            pin_value = pin_var.get().strip()
-            if selected_mode == "tv" and not api_key_value:
-                messagebox.showerror(
-                    "Credentials required",
-                    "Please provide a TheTVDB API key to use TV mode.",
-                    parent=dialog,
-                )
-                return
-
             self._mode = selected_mode
-            self._tvdb_api_key = api_key_value or None
-            self._tvdb_pin = pin_value or None
             self._apply_mode_change()
             dialog.destroy()
 
@@ -430,20 +392,11 @@ class DeeBeeApp:
         if self._mode == "movie":
             mode_display = "MOVIE MODE (IMDB API)"
         else:
-            mode_display = "TV MODE (TheTVDB API Tool)"
+            mode_display = "TV MODE (IMDB API)"
         self._append_log(f"Starting scan in {directory} using {mode_display}...")
 
         try:
-            if self._mode == "tv":
-                if not self._tvdb_api_key:
-                    messagebox.showerror(
-                        "Credentials required",
-                        "A TheTVDB API key is required to use TV mode.",
-                    )
-                    return
-                data_client = TheTVDBClient(api_key=self._tvdb_api_key, pin=self._tvdb_pin)
-            else:
-                data_client = IMDBClient()
+            data_client = IMDBClient()
         except Exception as exc:  # pragma: no cover - user feedback path
             messagebox.showerror("Error", f"Unable to initialise data client: {exc}")
             return
