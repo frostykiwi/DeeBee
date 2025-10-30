@@ -56,8 +56,16 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
         selected_candidates: List[MovieCandidate[TMetadata]] = []
 
         for movie_file in movie_files:
-            self._log(f"Searching matches for {movie_file.name}...")
-            results = self._imdb_client.search(self._guess_search_query(movie_file), limit=search_limit)
+            search_info = self._prepare_search(movie_file)
+            search_details = (
+                f" (S{search_info.season_number:02d}E{search_info.episode_number:02d})"
+                if search_info.season_number is not None and search_info.episode_number is not None
+                else ""
+            )
+            self._log(
+                f"Searching matches for {movie_file.name}{search_details} using query '{search_info.query}'..."
+            )
+            results = self._imdb_client.search(search_info.query, limit=search_limit)
             if not results:
                 self._log(f"No matches found for {movie_file.name}.")
                 continue
@@ -70,7 +78,13 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
                 self._log(f"Skipped {movie_file.name}.")
                 continue
 
-            candidate = MovieCandidate(movie_file, chosen, self._format_spec)
+            candidate = MovieCandidate(
+                movie_file,
+                chosen,
+                self._format_spec,
+                season_number=search_info.season_number,
+                episode_number=search_info.episode_number,
+            )
             selected_candidates.append(candidate)
 
             if dry_run:

@@ -32,8 +32,72 @@ class MediaSearchClient(Protocol[TMetadata]):
         """Return search results for the provided query."""
 
 INVALID_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.\- ]+")
+SEASON_EPISODE_PATTERNS = (
+    re.compile(r"(?i)\bS(?P<season>\d{1,3})[ ._-]*E(?P<episode>\d{1,3})\b"),
+    re.compile(r"(?i)\b(?P<season>\d{1,3})x(?P<episode>\d{1,3})\b"),
+    re.compile(
+        r"(?i)\bseason[ ._-]*(?P<season>\d{1,3})[ ._-]*(?:episode|ep)[ ._-]*(?P<episode>\d{1,3})\b"
+    ),
+)
+RELEASE_METADATA_TOKENS = {
+    "480p",
+    "720p",
+    "1080p",
+    "2160p",
+    "webdl",
+    "webrip",
+    "web",
+    "hdtv",
+    "hdrip",
+    "bluray",
+    "brrip",
+    "dvdrip",
+    "hdr",
+    "x264",
+    "x265",
+    "h264",
+    "h265",
+    "hevc",
+    "proper",
+    "repack",
+    "extended",
+    "unrated",
+    "remux",
+    "aac",
+    "ac3",
+    "dts",
+    "ddp",
+    "atmos",
+}
+
+
+def _strip_trailing_release_tokens(value: str) -> str:
+    tokens = value.strip().split()
+    while tokens:
+        token = tokens[-1]
+        normalized = token.casefold().replace("-", "")
+        if re.fullmatch(r"\d{3,4}p", normalized):
+            tokens.pop()
+            continue
+        if normalized.startswith("ddp") and normalized[3:].replace(".", "").isdigit():
+            tokens.pop()
+            continue
+        if normalized in RELEASE_METADATA_TOKENS:
+            tokens.pop()
+            continue
+        break
+    return " ".join(tokens)
 
 NameBuilder = Callable[[str, Optional[str]], str]
+
+
+@dataclass(frozen=True)
+class MediaSearchQuery:
+    """Information extracted from a filename for API searches."""
+
+    query: str
+    season_number: Optional[int]
+    episode_number: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -100,11 +164,15 @@ class MovieCandidate(Generic[TMetadata]):
     original_path: Path
     movie: TMetadata
     format_spec: RenameFormatSpec
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
 
     @property
     def proposed_filename(self) -> str:
         sanitized_title = _sanitize_title(self.movie.title)
         filename = self.format_spec.build_name(sanitized_title, self.movie.year)
+        if self.season_number is not None and self.episode_number is not None:
+            filename = f"{filename} S{self.season_number:02d}E{self.episode_number:02d}"
         return f"{filename}{self.original_path.suffix}"
 
     @property
@@ -159,8 +227,15 @@ class MovieRenamer(Generic[TMetadata]):
 
         for movie_file in movie_files:
             logger.debug("Processing file: %s", movie_file)
-            query = self._guess_search_query(movie_file)
-            logger.debug("Search query for %s resolved to '%s'", movie_file.name, query)
+            search_info = self._prepare_search(movie_file)
+            query = search_info.query
+            logger.debug(
+                "Search query for %s resolved to '%s' (season=%s, episode=%s)",
+                movie_file.name,
+                query,
+                search_info.season_number,
+                search_info.episode_number,
+            )
             results = self._imdb_client.search(query, limit=search_limit)
             logger.debug(
                 "Received %d result(s) for query '%s' (limit=%d)",
@@ -176,7 +251,13 @@ class MovieRenamer(Generic[TMetadata]):
             if chosen is None:
                 continue
 
-            candidate = MovieCandidate(movie_file, chosen, self._format_spec)
+            candidate = MovieCandidate(
+                movie_file,
+                chosen,
+                self._format_spec,
+                season_number=search_info.season_number,
+                episode_number=search_info.episode_number,
+            )
             selected_candidates.append(candidate)
 
             if dry_run:
@@ -196,15 +277,47 @@ class MovieRenamer(Generic[TMetadata]):
         logger.debug("Filtered %d supported media file(s) in %s", len(files), directory)
         return files
 
-    def _guess_search_query(self, path: Path) -> str:
+    def _prepare_search(self, path: Path) -> MediaSearchQuery:
+        """Extract the API query and optional episode numbers from ``path``."""
+
         base = path.stem
         logger.debug("Original filename stem for %s: '%s'", path.name, base)
+
+        season_number: Optional[int] = None
+        episode_number: Optional[int] = None
+
+        for pattern in SEASON_EPISODE_PATTERNS:
+            match = pattern.search(base)
+            if match:
+                try:
+                    season_number = int(match.group("season"))
+                    episode_number = int(match.group("episode"))
+                except (TypeError, ValueError):
+                    season_number = None
+                    episode_number = None
+                else:
+                    logger.debug(
+                        "Detected season/episode markers for %s: season=%s episode=%s",
+                        path.name,
+                        season_number,
+                        episode_number,
+                    )
+                start, end = match.span()
+                base = base[:start] + base[end:]
+                base = re.sub(r"[\s._-]+$", "", base)
+                break
+
         base = base.replace(".", " ")
         base = INVALID_FILENAME_CHARS.sub(" ", base)
         base = re.sub(r"\s+", " ", base)
+        base = _strip_trailing_release_tokens(base)
         query = base.strip()
         logger.debug("Normalized search query for %s: '%s'", path.name, query)
-        return query
+
+        return MediaSearchQuery(query=query, season_number=season_number, episode_number=episode_number)
+
+    def _guess_search_query(self, path: Path) -> str:
+        return self._prepare_search(path).query
 
     def _prompt_for_choice(
         self, file_path: Path, matches: List[TMetadata]

@@ -59,7 +59,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper()))
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(levelname)s:%(name)s:%(message)s",
+        force=True,
+    )
 
     console = Console()
     imdb_client = IMDBClient()
