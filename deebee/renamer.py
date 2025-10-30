@@ -20,6 +20,7 @@ class MediaMetadata(Protocol):
 
     title: str
     year: Optional[str]
+    episode_title: Optional[str]
 
 
 TMetadata = TypeVar("TMetadata", bound=MediaMetadata)
@@ -88,7 +89,19 @@ def _strip_trailing_release_tokens(value: str) -> str:
         break
     return " ".join(tokens)
 
-NameBuilder = Callable[[str, Optional[str]], str]
+
+@dataclass(frozen=True)
+class RenameContext:
+    """Information required to generate a filename for media items."""
+
+    series_title: str
+    episode_title: Optional[str]
+    year: Optional[str]
+    season_number: Optional[int]
+    episode_number: Optional[int]
+
+
+NameBuilder = Callable[[RenameContext], str]
 
 
 @dataclass(frozen=True)
@@ -108,47 +121,62 @@ class RenameFormatSpec:
     label: str
     builder: NameBuilder
 
-    def build_name(self, title: str, year: Optional[str]) -> str:
+    def build_name(self, context: RenameContext) -> str:
         """Return the filename (without extension) for the provided metadata."""
 
-        name = self.builder(title, year)
+        name = self.builder(context)
         name = re.sub(r"\s+", " ", name).strip()
-        return name or title
+        return name or context.series_title
 
 
-def _format_title_year(title: str, year: Optional[str]) -> str:
-    return f"{title} ({year})" if year else title
+def _format_show_episode_with_numbers(context: RenameContext) -> str:
+    parts: list[str] = [context.series_title]
+    if context.episode_title:
+        parts.append(context.episode_title)
+    season = context.season_number
+    episode = context.episode_number
+    if season is not None and episode is not None:
+        parts.append(f"S{season:02d}E{episode:02d}")
+    return " - ".join(part for part in parts if part)
 
 
-def _format_title_dash_year(title: str, year: Optional[str]) -> str:
-    return f"{title} - {year}" if year else title
+def _format_show_with_numbers(context: RenameContext) -> str:
+    season = context.season_number
+    episode = context.episode_number
+    suffix = f" - S{season:02d}E{episode:02d}" if season is not None and episode is not None else ""
+    return f"{context.series_title}{suffix}"
 
 
-def _format_year_dash_title(title: str, year: Optional[str]) -> str:
-    return f"{year} - {title}" if year else title
+def _format_show_episode(context: RenameContext) -> str:
+    if context.episode_title:
+        return f"{context.series_title} - {context.episode_title}"
+    return context.series_title
 
 
-def _format_title_only(title: str, year: Optional[str]) -> str:  # noqa: ARG001
-    return title
-
-
-def _format_title_brackets_year(title: str, year: Optional[str]) -> str:
-    return f"{title} [{year}]" if year else title
+def _format_show_only(context: RenameContext) -> str:
+    return context.series_title
 
 
 AVAILABLE_RENAME_FORMATS = {
-    "title_year": RenameFormatSpec("title_year", "Title (Year)", _format_title_year),
-    "title_dash_year": RenameFormatSpec("title_dash_year", "Title - Year", _format_title_dash_year),
-    "year_dash_title": RenameFormatSpec("year_dash_title", "Year - Title", _format_year_dash_title),
-    "title_only": RenameFormatSpec("title_only", "Title", _format_title_only),
-    "title_brackets_year": RenameFormatSpec(
-        "title_brackets_year",
-        "Title [Year]",
-        _format_title_brackets_year,
+    "show_episode_numbers": RenameFormatSpec(
+        "show_episode_numbers",
+        "TV Show Name - Episode Name - S##E##",
+        _format_show_episode_with_numbers,
     ),
+    "show_numbers": RenameFormatSpec(
+        "show_numbers",
+        "TV Show Name - S##E##",
+        _format_show_with_numbers,
+    ),
+    "show_episode": RenameFormatSpec(
+        "show_episode",
+        "TV Show Name - Episode Name",
+        _format_show_episode,
+    ),
+    "show_only": RenameFormatSpec("show_only", "TV Show Name", _format_show_only),
 }
 
-DEFAULT_RENAME_FORMAT_KEY = "title_year"
+DEFAULT_RENAME_FORMAT_KEY = "show_episode_numbers"
 
 
 def _sanitize_title(title: str) -> str:
@@ -170,9 +198,20 @@ class MovieCandidate(Generic[TMetadata]):
     @property
     def proposed_filename(self) -> str:
         sanitized_title = _sanitize_title(self.movie.title)
-        filename = self.format_spec.build_name(sanitized_title, self.movie.year)
+        raw_episode = getattr(self.movie, "episode_title", None)
+        sanitized_episode = _sanitize_title(raw_episode) if raw_episode else None
+        context = RenameContext(
+            series_title=sanitized_title,
+            episode_title=sanitized_episode,
+            year=self.movie.year,
+            season_number=self.season_number,
+            episode_number=self.episode_number,
+        )
+        filename = self.format_spec.build_name(context)
         if self.season_number is not None and self.episode_number is not None:
-            filename = f"{filename} S{self.season_number:02d}E{self.episode_number:02d}"
+            # Ensure season/episode markers are present for formats that omit them.
+            if f"S{self.season_number:02d}E{self.episode_number:02d}" not in filename:
+                filename = f"{filename} S{self.season_number:02d}E{self.episode_number:02d}"
         return f"{filename}{self.original_path.suffix}"
 
     @property
