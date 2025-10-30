@@ -1,8 +1,8 @@
 # DeeBee
 
-DeeBee is a command-line assistant that helps you clean up movie folders by
-looking up titles on [imdbapi.dev](https://imdbapi.dev/) and renaming the files
-accordingly.
+DeeBee is a command-line assistant that helps you clean up movie and TV show
+folders by looking up titles on [imdbapi.dev](https://imdbapi.dev/) and
+renaming the files accordingly.
 
 ## Requirements
 
