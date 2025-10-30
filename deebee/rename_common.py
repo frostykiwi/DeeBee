@@ -1,4 +1,4 @@
-"""Filesystem utilities for DeeBee."""
+"""Shared utilities for DeeBee media renamers."""
 from __future__ import annotations
 
 import logging
@@ -12,7 +12,6 @@ from rich.table import Table
 
 
 logger = logging.getLogger(__name__)
-
 
 
 class MediaMetadata(Protocol):
@@ -31,6 +30,7 @@ class MediaSearchClient(Protocol[TMetadata]):
 
     def search(self, query: str, *, limit: int = 10) -> List[TMetadata]:  # pragma: no cover - protocol definition
         """Return search results for the provided query."""
+
 
 INVALID_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9_.\- ]+")
 YEAR_TOKEN_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
@@ -121,7 +121,6 @@ class RenameFormatSpec:
     key: str
     label: str
     builder: NameBuilder
-    modes: tuple[str, ...] = ("movie", "tv")
 
     def build_name(self, context: RenameContext) -> str:
         """Return the filename (without extension) for the provided metadata."""
@@ -130,100 +129,35 @@ class RenameFormatSpec:
         name = re.sub(r"\s+", " ", name).strip()
         return name or context.series_title
 
-    def supports_mode(self, mode: str) -> bool:
-        """Return ``True`` if this format can be used for ``mode``."""
 
-        normalized = mode.lower()
-        return normalized in self.modes
+@dataclass
+class MediaCandidate(Generic[TMetadata]):
+    """Mapping between a file path and a proposed media metadata match."""
 
+    original_path: Path
+    metadata: TMetadata
+    format_spec: RenameFormatSpec
+    season_number: Optional[int] = None
+    episode_number: Optional[int] = None
 
-def _format_show_episode_with_numbers(context: RenameContext) -> str:
-    parts: list[str] = [context.series_title]
-    if context.episode_title:
-        parts.append(context.episode_title)
-    season = context.season_number
-    episode = context.episode_number
-    if season is not None and episode is not None:
-        parts.append(f"S{season:02d}E{episode:02d}")
-    return " - ".join(part for part in parts if part)
+    @property
+    def proposed_filename(self) -> str:
+        sanitized_title = _sanitize_title(self.metadata.title)
+        raw_episode = getattr(self.metadata, "episode_title", None)
+        sanitized_episode = _sanitize_title(raw_episode) if raw_episode else None
+        context = RenameContext(
+            series_title=sanitized_title,
+            episode_title=sanitized_episode,
+            year=self.metadata.year,
+            season_number=self.season_number,
+            episode_number=self.episode_number,
+        )
+        filename = self.format_spec.build_name(context)
+        return f"{filename}{self.original_path.suffix}"
 
-
-def _format_show_with_numbers(context: RenameContext) -> str:
-    season = context.season_number
-    episode = context.episode_number
-    suffix = f" - S{season:02d}E{episode:02d}" if season is not None and episode is not None else ""
-    return f"{context.series_title}{suffix}"
-
-
-def _format_show_episode(context: RenameContext) -> str:
-    if context.episode_title:
-        return f"{context.series_title} - {context.episode_title}"
-    return context.series_title
-
-
-def _format_show_only(context: RenameContext) -> str:
-    return context.series_title
-
-
-def _format_movie_title_with_year(context: RenameContext) -> str:
-    if context.year:
-        return f"{context.series_title} ({context.year})"
-    return context.series_title
-
-
-def _format_movie_title(context: RenameContext) -> str:
-    return context.series_title
-
-
-MOVIE_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
-    "movie_title": RenameFormatSpec(
-        "movie_title",
-        "Movie Title",
-        _format_movie_title,
-        ("movie",),
-    ),
-    "movie_title_year": RenameFormatSpec(
-        "movie_title_year",
-        "Movie Title (Year)",
-        _format_movie_title_with_year,
-        ("movie",),
-    ),
-}
-
-TV_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
-    "show_episode_numbers": RenameFormatSpec(
-        "show_episode_numbers",
-        "TV Show Name - Episode Name - S##E##",
-        _format_show_episode_with_numbers,
-        ("tv",),
-    ),
-    "show_numbers": RenameFormatSpec(
-        "show_numbers",
-        "TV Show Name - S##E##",
-        _format_show_with_numbers,
-        ("tv",),
-    ),
-    "show_episode": RenameFormatSpec(
-        "show_episode",
-        "TV Show Name - Episode Name",
-        _format_show_episode,
-        ("tv",),
-    ),
-    "show_only": RenameFormatSpec(
-        "show_only",
-        "TV Show Name",
-        _format_show_only,
-        ("tv",),
-    ),
-}
-
-AVAILABLE_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
-    **MOVIE_RENAME_FORMATS,
-    **TV_RENAME_FORMATS,
-}
-
-DEFAULT_RENAME_FORMAT_KEY = "movie_title"
-DEFAULT_TV_RENAME_FORMAT_KEY = "show_episode_numbers"
+    @property
+    def proposed_path(self) -> Path:
+        return self.original_path.with_name(self.proposed_filename)
 
 
 def _sanitize_title(title: str) -> str:
@@ -232,46 +166,12 @@ def _sanitize_title(title: str) -> str:
     return sanitized.strip()
 
 
-@dataclass
-class MovieCandidate(Generic[TMetadata]):
-    """Mapping between a file path and a proposed movie metadata match."""
-
-    original_path: Path
-    movie: TMetadata
-    format_spec: RenameFormatSpec
-    season_number: Optional[int] = None
-    episode_number: Optional[int] = None
-
-    @property
-    def proposed_filename(self) -> str:
-        sanitized_title = _sanitize_title(self.movie.title)
-        raw_episode = getattr(self.movie, "episode_title", None)
-        sanitized_episode = _sanitize_title(raw_episode) if raw_episode else None
-        context = RenameContext(
-            series_title=sanitized_title,
-            episode_title=sanitized_episode,
-            year=self.movie.year,
-            season_number=self.season_number,
-            episode_number=self.episode_number,
-        )
-        filename = self.format_spec.build_name(context)
-        if (
-            self.season_number is not None
-            and self.episode_number is not None
-            and not self.format_spec.supports_mode("tv")
-        ):
-            # Ensure season/episode markers are present for movie formats that omit them.
-            if f"S{self.season_number:02d}E{self.episode_number:02d}" not in filename:
-                filename = f"{filename} S{self.season_number:02d}E{self.episode_number:02d}"
-        return f"{filename}{self.original_path.suffix}"
-
-    @property
-    def proposed_path(self) -> Path:
-        return self.original_path.with_name(self.proposed_filename)
-
-
-class MovieRenamer(Generic[TMetadata]):
+class BaseRenamer(Generic[TMetadata]):
     """Core orchestrator for scanning directories and renaming media files."""
+
+    MEDIA_EXTENSIONS = {".mp4", ".mkv", ".avi"}
+    RENAME_FORMATS: dict[str, RenameFormatSpec] = {}
+    DEFAULT_RENAME_FORMAT_KEY: str = ""
 
     def __init__(
         self,
@@ -279,52 +179,31 @@ class MovieRenamer(Generic[TMetadata]):
         console: Optional[Console] = None,
         *,
         rename_format: Optional[str] = None,
-        media_mode: str = "movie",
     ) -> None:
         self._media_client = media_client
         self._console = console or Console()
-        self._media_mode = media_mode.lower()
-        if self._media_mode not in {"movie", "tv"}:
-            raise ValueError("media_mode must be either 'movie' or 'tv'.")
+
+        if not self.RENAME_FORMATS:
+            raise ValueError("No rename formats have been defined for this renamer.")
 
         if rename_format is None:
-            rename_format = (
-                DEFAULT_TV_RENAME_FORMAT_KEY
-                if self._media_mode == "tv"
-                else DEFAULT_RENAME_FORMAT_KEY
-            )
+            rename_format = self.DEFAULT_RENAME_FORMAT_KEY
 
-        self._format_spec = self._resolve_format(rename_format, self._media_mode)
+        self._format_spec = self._resolve_format(rename_format)
 
-    @staticmethod
-    def available_formats(mode: Optional[str] = None) -> List[RenameFormatSpec]:
-        """Return the available rename format specifications."""
+    @classmethod
+    def available_formats(cls) -> List[RenameFormatSpec]:
+        """Return the available rename format specifications for the renamer."""
 
-        if mode is None:
-            return list(AVAILABLE_RENAME_FORMATS.values())
+        return list(cls.RENAME_FORMATS.values())
 
-        normalized = mode.lower()
-        if normalized not in {"movie", "tv"}:
-            raise ValueError("mode must be 'movie', 'tv', or None")
-
-        return [
-            spec
-            for spec in AVAILABLE_RENAME_FORMATS.values()
-            if spec.supports_mode(normalized)
-        ]
-
-    @staticmethod
-    def _resolve_format(key: str, mode: Optional[str] = None) -> RenameFormatSpec:
+    @classmethod
+    def _resolve_format(cls, key: str) -> RenameFormatSpec:
         try:
-            spec = AVAILABLE_RENAME_FORMATS[key]
+            return cls.RENAME_FORMATS[key]
         except KeyError as exc:  # pragma: no cover - defensive programming
-            available = ", ".join(sorted(AVAILABLE_RENAME_FORMATS))
+            available = ", ".join(sorted(cls.RENAME_FORMATS))
             raise ValueError(f"Unknown rename format '{key}'. Available: {available}") from exc
-
-        if mode is not None and not spec.supports_mode(mode):
-            raise ValueError(f"Rename format '{key}' is not valid for {mode} mode.")
-
-        return spec
 
     def process_directory(
         self,
@@ -332,24 +211,20 @@ class MovieRenamer(Generic[TMetadata]):
         *,
         dry_run: bool = True,
         search_limit: int = 10,
-    ) -> List[MovieCandidate[TMetadata]]:
-        """Process a directory containing movie files.
+    ) -> List[MediaCandidate[TMetadata]]:
+        """Process a directory containing media files."""
 
-        Returns the chosen mappings for inspection by callers. When ``dry_run`` is
-        ``False`` the filesystem is modified accordingly.
-        """
+        media_files = list(self._discover_media_files(directory))
+        logger.debug("Discovered %d candidate file(s) in %s", len(media_files), directory)
+        selected_candidates: List[MediaCandidate[TMetadata]] = []
 
-        movie_files = list(self._discover_movie_files(directory))
-        logger.debug("Discovered %d candidate file(s) in %s", len(movie_files), directory)
-        selected_candidates: List[MovieCandidate[TMetadata]] = []
-
-        for movie_file in movie_files:
-            logger.debug("Processing file: %s", movie_file)
-            search_info = self._prepare_search(movie_file)
+        for media_file in media_files:
+            logger.debug("Processing file: %s", media_file)
+            search_info = self._prepare_search(media_file)
             query = search_info.query
             logger.debug(
                 "Search query for %s resolved to '%s' (season=%s, episode=%s)",
-                movie_file.name,
+                media_file.name,
                 query,
                 search_info.season_number,
                 search_info.episode_number,
@@ -362,15 +237,15 @@ class MovieRenamer(Generic[TMetadata]):
                 search_limit,
             )
             if not results:
-                self._console.print(f"[yellow]No matches found for:[/] {movie_file.name}")
+                self._console.print(f"[yellow]No matches found for:[/] {media_file.name}")
                 continue
 
-            chosen = self._prompt_for_choice(movie_file, results)
+            chosen = self._prompt_for_choice(media_file, results)
             if chosen is None:
                 continue
 
-            candidate = MovieCandidate(
-                movie_file,
+            candidate = MediaCandidate(
+                media_file,
                 chosen,
                 self._format_spec,
                 season_number=search_info.season_number,
@@ -382,7 +257,7 @@ class MovieRenamer(Generic[TMetadata]):
             display_name = target_path.name
 
             if dry_run:
-                self._console.print(f"[cyan]DRY RUN:[/] {movie_file.name} -> {display_name}")
+                self._console.print(f"[cyan]DRY RUN:[/] {media_file.name} -> {display_name}")
                 if adjusted:
                     self._console.print(
                         f"[yellow]Note:[/] {candidate.proposed_filename} already exists. Would use {display_name} instead."
@@ -392,16 +267,14 @@ class MovieRenamer(Generic[TMetadata]):
                     self._console.print(
                         f"[yellow]Adjusted target to avoid overwrite:[/] {candidate.proposed_filename} -> {display_name}"
                     )
-                self._console.print(f"Renaming {movie_file.name} -> {display_name}")
-                movie_file.rename(target_path)
+                self._console.print(f"Renaming {media_file.name} -> {display_name}")
+                media_file.rename(target_path)
 
         return selected_candidates
 
-    def _discover_movie_files(self, directory: Path) -> Iterable[Path]:
+    def _discover_media_files(self, directory: Path) -> Iterable[Path]:
         files = sorted(
-            p
-            for p in directory.iterdir()
-            if p.is_file() and p.suffix.lower() in {".mp4", ".mkv", ".avi"}
+            p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in self.MEDIA_EXTENSIONS
         )
         logger.debug("Filtered %d supported media file(s) in %s", len(files), directory)
         return files
@@ -450,7 +323,7 @@ class MovieRenamer(Generic[TMetadata]):
 
         return MediaSearchQuery(query=query, season_number=season_number, episode_number=episode_number)
 
-    def _determine_target_path(self, candidate: MovieCandidate[TMetadata]) -> Tuple[Path, bool]:
+    def _determine_target_path(self, candidate: MediaCandidate[TMetadata]) -> Tuple[Path, bool]:
         """Return a filesystem path for ``candidate`` that avoids clobbering existing files."""
 
         proposed_path = candidate.proposed_path
@@ -469,16 +342,14 @@ class MovieRenamer(Generic[TMetadata]):
     def _guess_search_query(self, path: Path) -> str:
         return self._prepare_search(path).query
 
-    def _prompt_for_choice(
-        self, file_path: Path, matches: List[TMetadata]
-    ) -> Optional[TMetadata]:
+    def _prompt_for_choice(self, file_path: Path, matches: List[TMetadata]) -> Optional[TMetadata]:
         table = Table(title=f"Matches for {file_path.name}")
         table.add_column("Index", justify="right")
         table.add_column("Title")
         table.add_column("Year")
 
-        for index, movie in enumerate(matches, start=1):
-            table.add_row(str(index), movie.title, movie.year or "?")
+        for index, media in enumerate(matches, start=1):
+            table.add_row(str(index), media.title, media.year or "?")
 
         table.add_row("0", "Skip", "")
         self._console.print(table)
