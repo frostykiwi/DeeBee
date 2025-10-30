@@ -1,7 +1,8 @@
 """TV-specific renaming logic."""
 from __future__ import annotations
 
-from typing import Optional, TypeVar
+import logging
+from typing import List, Optional, TypeVar
 
 from rich.console import Console
 
@@ -9,9 +10,13 @@ from .rename_common import (
     BaseRenamer,
     MediaMetadata,
     MediaSearchClient,
+    MediaSearchQuery,
     RenameContext,
     RenameFormatSpec,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 TMetadata = TypeVar("TMetadata", bound=MediaMetadata)
@@ -85,3 +90,36 @@ class TVRenamer(BaseRenamer[TMetadata]):
         rename_format: Optional[str] = None,
     ) -> None:
         super().__init__(media_client, console=console, rename_format=rename_format)
+
+    def _perform_search(
+        self, search_info: MediaSearchQuery, limit: int
+    ) -> List[TMetadata]:  # type: ignore[override]
+        """Search for TV metadata, preferring episode lookups when available."""
+
+        client = self._media_client
+        season = search_info.season_number
+        episode = search_info.episode_number
+
+        if season is not None and episode is not None:
+            search_episode = getattr(client, "search_episode", None)
+            if callable(search_episode):
+                try:
+                    results = search_episode(
+                        search_info.query,
+                        season,
+                        episode,
+                        limit=limit,
+                    )
+                except Exception as exc:  # pragma: no cover - runtime logging aid
+                    logger.debug(
+                        "Episode-specific lookup failed for query='%s' season=%s episode=%s: %s",
+                        search_info.query,
+                        season,
+                        episode,
+                        exc,
+                    )
+                else:
+                    if results:
+                        return results
+
+        return super()._perform_search(search_info, limit)

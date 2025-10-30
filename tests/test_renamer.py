@@ -23,13 +23,34 @@ class DummyConsole:
 
 
 class DummyClient:
-    def __init__(self, movies: List[IMDBMovie]) -> None:
+    def __init__(
+        self,
+        movies: List[IMDBMovie],
+        *,
+        episodes: List[IMDBMovie] | None = None,
+        episode_fail: bool = False,
+    ) -> None:
         self._movies = movies
+        self._episodes = episodes if episodes is not None else movies
+        self._episode_fail = episode_fail
         self.calls = []
 
     def search(self, query: str, *, limit: int = 10) -> List[IMDBMovie]:
-        self.calls.append((query, limit))
+        self.calls.append(("search", query, limit))
         return self._movies
+
+    def search_episode(
+        self,
+        query: str,
+        season_number: int,
+        episode_number: int,
+        *,
+        limit: int = 10,
+    ) -> List[IMDBMovie]:
+        self.calls.append(("search_episode", query, season_number, episode_number, limit))
+        if self._episode_fail:
+            raise RuntimeError("episode lookup failure")
+        return self._episodes
 
 
 @pytest.fixture
@@ -84,7 +105,7 @@ def test_process_directory_dry_run(movie: Path) -> None:
     directory = movie.parent
     results = renamer.process_directory(directory, dry_run=True, search_limit=5)
 
-    assert client.calls == [("The Matrix 1999", 5)]
+    assert client.calls == [("search", "The Matrix 1999", 5)]
     assert len(results) == 1
     candidate = results[0]
     assert candidate.proposed_filename == "The Matrix.mkv"
@@ -142,7 +163,53 @@ def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
 
-    assert client.calls == [("The Expanse", 5)]
+    assert client.calls == [("search_episode", "The Expanse", 2, 3, 5)]
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse - Static - S02E03.mkv"
+
+
+def test_tv_episode_search_falls_back_when_no_results(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata], episodes=[])
+    renamer = TVRenamer(
+        client,
+        console=DummyConsole(["1"]),
+    )
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert client.calls == [
+        ("search_episode", "The Expanse", 2, 3, 5),
+        ("search", "The Expanse", 5),
+    ]
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse - Static - S02E03.mkv"
+
+
+def test_tv_episode_search_falls_back_on_exception(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata], episode_fail=True)
+    renamer = TVRenamer(
+        client,
+        console=DummyConsole(["1"]),
+    )
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert client.calls == [
+        ("search_episode", "The Expanse", 2, 3, 5),
+        ("search", "The Expanse", 5),
+    ]
     assert len(results) == 1
     assert results[0].proposed_filename == "The Expanse - Static - S02E03.mkv"
 
