@@ -7,6 +7,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, List, Optional
 
+import requests
+
 
 logger = logging.getLogger(__name__)
 
@@ -416,7 +418,137 @@ class TheTVDBClient:
 
         if last_error is not None:
             logger.debug("Episode lookup failed for series %s: %s", series_id, last_error)
+
+        direct_lookup = self._direct_episode_lookup(
+            series_id, season_number, episode_number
+        )
+        if direct_lookup:
+            return direct_lookup
+
         return None
+
+    def _direct_episode_lookup(
+        self, series_id: int, season_number: int, episode_number: int
+    ) -> Optional[str]:
+        """Fallback episode lookup using direct HTTP requests to TheTVDB API."""
+
+        request_client = getattr(self._client, "request", None)
+        auth_token = getattr(request_client, "auth_token", None)
+        if not isinstance(auth_token, str) or not auth_token:
+            return None
+
+        url_helper = getattr(self._client, "url", None)
+        base_url = getattr(url_helper, "base_url", "https://api4.thetvdb.com/v4/")
+        if not isinstance(base_url, str) or not base_url:
+            base_url = "https://api4.thetvdb.com/v4/"
+
+        base_url = base_url.rstrip("/")
+
+        headers = {
+            "Authorization": f"Bearer {auth_token}",
+            "Accept": "application/json",
+        }
+
+        params_template = {
+            "page": 0,
+            "season": season_number,
+            "episodeNumber": episode_number,
+        }
+
+        season_types = (
+            "default",
+            "official",
+            "dvd",
+            "absolute",
+            "alternate",
+            "regional",
+        )
+
+        for season_type in season_types:
+            params = dict(params_template)
+            endpoint = f"{base_url}/series/{series_id}/episodes/{season_type}"
+
+            try:
+                response = requests.get(endpoint, headers=headers, params=params, timeout=10)
+            except requests.RequestException as exc:  # pragma: no cover - network failure
+                logger.debug(
+                    "HTTP episode lookup failed for series_id=%s season=%s episode=%s type=%s: %s",
+                    series_id,
+                    season_number,
+                    episode_number,
+                    season_type,
+                    exc,
+                )
+                continue
+
+            if response.status_code != 200:
+                if response.status_code not in {404, 422}:
+                    logger.debug(
+                        "Unexpected response during episode lookup for series_id=%s type=%s: %s %s",
+                        series_id,
+                        season_type,
+                        response.status_code,
+                        response.text,
+                    )
+                continue
+
+            try:
+                payload = response.json()
+            except ValueError:  # pragma: no cover - invalid payload
+                logger.debug(
+                    "Received invalid JSON payload for series_id=%s type=%s", series_id, season_type
+                )
+                continue
+
+            title = self._extract_episode_from_collection(
+                payload, season_number, episode_number
+            )
+            if title:
+                return title
+
+        return None
+
+    def _extract_episode_from_collection(
+        self, payload: Any, season_number: int, episode_number: int
+    ) -> Optional[str]:
+        """Extract a title from a collection-style payload."""
+
+        data = _coerce_payload(payload)
+        collection = data.get("data")
+        if isinstance(collection, dict):
+            data = collection
+
+        episodes = data.get("episodes")
+        if isinstance(episodes, list):
+            for item in episodes:
+                episode_data = _coerce_payload(item)
+                if not episode_data:
+                    continue
+
+                candidate_season = episode_data.get("seasonNumber")
+                candidate_episode = (
+                    episode_data.get("number")
+                    or episode_data.get("episodeNumber")
+                    or episode_data.get("airedEpisodeNumber")
+                )
+
+                if (
+                    isinstance(candidate_season, int)
+                    and isinstance(candidate_episode, int)
+                    and candidate_season == season_number
+                    and candidate_episode == episode_number
+                ):
+                    title = self._extract_episode_title(episode_data)
+                    if title:
+                        return title
+
+            # If the API already filtered the episode list, fall back to the first match
+            if episodes:
+                first_title = self._extract_episode_title(episodes[0])
+                if first_title:
+                    return first_title
+
+        return self._extract_episode_title(data)
 
     def _locate_episode_callables(self) -> List[Any]:
         """Locate callables that can retrieve episode information."""
@@ -647,5 +779,12 @@ class TheTVDBClient:
                 value = translation.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
+
+        episodes = data.get("episodes")
+        if isinstance(episodes, list):
+            for item in episodes:
+                title = self._extract_episode_title(item)
+                if title:
+                    return title
 
         return None
