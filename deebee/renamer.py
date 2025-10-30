@@ -255,8 +255,12 @@ class MovieCandidate(Generic[TMetadata]):
             episode_number=self.episode_number,
         )
         filename = self.format_spec.build_name(context)
-        if self.season_number is not None and self.episode_number is not None:
-            # Ensure season/episode markers are present for formats that omit them.
+        if (
+            self.season_number is not None
+            and self.episode_number is not None
+            and not self.format_spec.supports_mode("tv")
+        ):
+            # Ensure season/episode markers are present for movie formats that omit them.
             if f"S{self.season_number:02d}E{self.episode_number:02d}" not in filename:
                 filename = f"{filename} S{self.season_number:02d}E{self.episode_number:02d}"
         return f"{filename}{self.original_path.suffix}"
