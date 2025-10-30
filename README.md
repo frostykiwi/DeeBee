@@ -5,10 +5,15 @@ DeeBee is a Python 3.10+ toolkit that tidies movie and TV show folders by matchi
 Key Features:
 
 Guided command-line workflow. DeeBee scans any folder you point it at, presents matching IMDb results in an interactive console table, and only renames files after you confirm the right choice—perfect for batch cleanup without unwanted surprises.
+
 Safe-by-default execution. Runs start in dry-run mode so you can preview proposed filenames; add --execute when you’re ready to commit the changes for real.
+
 Fine-grained controls. Adjust how many IMDb matches appear with --limit, pick from multiple rename formats, and set the logging level to trace normalization and API calls when troubleshooting.
+
 Rich metadata handling. Behind the scenes, DeeBee’s IMDb client normalizes titles, years, and episode data, retries flaky network calls, and gracefully deals with imperfect API payloads to keep the renaming experience smooth.
+
 Optional desktop experience. Prefer a visual review? The Tkinter GUI lets you browse to a folder, sift through matches in dialog windows, skip or stop at any point, and apply renames with a click—still honoring dry-run previews for safety.
+
 
 
 
