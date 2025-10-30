@@ -38,11 +38,27 @@ def movie(tmp_path: Path) -> Path:
     return file_path
 
 
+@pytest.fixture
+def tv_episode(tmp_path: Path) -> Path:
+    file_path = tmp_path / "The.Expanse.S02E03.1080p.mkv"
+    file_path.write_text("dummy")
+    return file_path
+
+
 def test_guess_search_query(movie: Path) -> None:
     client = DummyClient([])
     renamer = MovieRenamer(client, console=DummyConsole())
     query = renamer._guess_search_query(movie)
     assert query == "The Matrix 1999"
+
+
+def test_prepare_search_extracts_episode_numbers(tv_episode: Path) -> None:
+    client = DummyClient([])
+    renamer = MovieRenamer(client, console=DummyConsole())
+    search_info = renamer._prepare_search(tv_episode)
+    assert search_info.query == "The Expanse"
+    assert search_info.season_number == 2
+    assert search_info.episode_number == 3
 
 
 def test_process_directory_dry_run(movie: Path) -> None:
@@ -92,3 +108,15 @@ def test_missing_year_uses_title_only(movie: Path) -> None:
 
     assert len(results) == 1
     assert results[0].proposed_filename == "The Matrix.mkv"
+
+
+def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(id="tt999", title="The Expanse", year="2015")
+    client = DummyClient([episode_metadata])
+    renamer = MovieRenamer(client, console=DummyConsole(["1"]))
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert client.calls == [("The Expanse", 5)]
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse (2015) S02E03.mkv"
