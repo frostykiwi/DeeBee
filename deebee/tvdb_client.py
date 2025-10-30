@@ -66,6 +66,7 @@ class TVDBSeries:
     year: Optional[str]
     episode_title: Optional[str] = None
 
+
     @classmethod
     def from_dict(cls, payload: Any) -> "TVDBSeries":
         data = _coerce_payload(payload)
@@ -113,6 +114,14 @@ class TVDBSeries:
         if self.year:
             return f"{self.title} ({self.year})"
         return self.title
+
+
+@dataclass
+class EpisodeLookupResult:
+    """Details returned from an episode lookup request."""
+
+    series_title: Optional[str] = None
+    episode_title: Optional[str] = None
 
 
 class TheTVDBClient:
@@ -261,9 +270,10 @@ class TheTVDBClient:
         enriched: list[TVDBSeries] = []
         for series in base_matches:
             episode_title: Optional[str] = None
+            resolved_series_title: Optional[str] = None
             if series.id:
                 try:
-                    episode_title = self._lookup_episode_title(
+                    details = self._lookup_episode_details(
                         series.id, season_number, episode_number
                     )
                 except Exception as exc:  # pragma: no cover - defensive logging
@@ -274,10 +284,14 @@ class TheTVDBClient:
                         episode_number,
                         exc,
                     )
+                else:
+                    if details is not None:
+                        episode_title = details.episode_title
+                        resolved_series_title = details.series_title
             enriched.append(
                 TVDBSeries(
                     id=series.id,
-                    title=series.title,
+                    title=resolved_series_title or series.title,
                     year=series.year,
                     episode_title=episode_title,
                 )
@@ -390,10 +404,10 @@ class TheTVDBClient:
             return list(payload)
         return [payload]
 
-    def _lookup_episode_title(
+    def _lookup_episode_details(
         self, series_id: int, season_number: int, episode_number: int
-    ) -> Optional[str]:
-        """Return the translated episode title for the provided identifiers."""
+    ) -> Optional[EpisodeLookupResult]:
+        """Return the translated episode details for the provided identifiers."""
 
         lookup_callables = self._locate_episode_callables()
         if not lookup_callables:
@@ -412,9 +426,11 @@ class TheTVDBClient:
             except Exception:
                 raise
             else:
-                title = self._extract_episode_title(payload)
-                if title:
-                    return title
+                details = self._extract_episode_details(
+                    payload, season_number, episode_number
+                )
+                if details.series_title or details.episode_title:
+                    return details
 
         if last_error is not None:
             logger.debug("Episode lookup failed for series %s: %s", series_id, last_error)
@@ -422,14 +438,14 @@ class TheTVDBClient:
         direct_lookup = self._direct_episode_lookup(
             series_id, season_number, episode_number
         )
-        if direct_lookup:
+        if direct_lookup and (direct_lookup.series_title or direct_lookup.episode_title):
             return direct_lookup
 
         return None
 
     def _direct_episode_lookup(
         self, series_id: int, season_number: int, episode_number: int
-    ) -> Optional[str]:
+    ) -> Optional[EpisodeLookupResult]:
         """Fallback episode lookup using direct HTTP requests to TheTVDB API."""
 
         request_client = getattr(self._client, "request", None)
@@ -500,11 +516,96 @@ class TheTVDBClient:
                 )
                 continue
 
-            title = self._extract_episode_from_collection(
+            details = self._extract_episode_details(
                 payload, season_number, episode_number
             )
-            if title:
-                return title
+            if details.series_title or details.episode_title:
+                return details
+
+        return None
+
+    def _extract_episode_details(
+        self, payload: Any, season_number: int, episode_number: int
+    ) -> EpisodeLookupResult:
+        """Derive series and episode titles from an arbitrary payload."""
+
+        episode_title = self._extract_episode_from_collection(
+            payload, season_number, episode_number
+        )
+        if not episode_title:
+            episode_title = self._extract_episode_title(payload)
+
+        series_title = self._extract_series_title(payload)
+
+        return EpisodeLookupResult(
+            series_title=series_title,
+            episode_title=episode_title,
+        )
+
+    def _extract_series_title(self, payload: Any) -> Optional[str]:
+        """Extract the most relevant series title from a payload."""
+
+        data = _coerce_payload(payload)
+        if not data:
+            return None
+
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            nested_title = self._extract_series_title(nested)
+            if nested_title:
+                return nested_title
+        elif isinstance(nested, list):
+            for item in nested:
+                nested_title = self._extract_series_title(item)
+                if nested_title:
+                    return nested_title
+
+        for key in ("series", "seriesInfo", "series_data", "show"):
+            container = data.get(key)
+            if isinstance(container, dict):
+                nested_title = self._extract_series_title(container)
+                if nested_title:
+                    return nested_title
+            elif isinstance(container, list):
+                for item in container:
+                    nested_title = self._extract_series_title(item)
+                    if nested_title:
+                        return nested_title
+
+        for key in (
+            "seriesName",
+            "series",
+            "name",
+            "title",
+            "seriesTitle",
+            "showName",
+            "slug",
+        ):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        translations = data.get("translations")
+        if isinstance(translations, dict):
+            for key in ("name", "title"):
+                value = translations.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(translations, list):
+            for item in translations:
+                item_dict = _coerce_payload(item)
+                for key in ("name", "title"):
+                    value = item_dict.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+
+        try:
+            series = TVDBSeries.from_dict(data)
+        except Exception:  # pragma: no cover - defensive parsing
+            series = None
+        else:
+            if series.title:
+                return series.title
 
         return None
 
