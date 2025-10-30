@@ -4,7 +4,11 @@ from typing import List
 import pytest
 
 from deebee.imdb_client import IMDBMovie
-from deebee.renamer import DEFAULT_RENAME_FORMAT_KEY, MovieRenamer
+from deebee.renamer import (
+    DEFAULT_RENAME_FORMAT_KEY,
+    DEFAULT_TV_RENAME_FORMAT_KEY,
+    MovieRenamer,
+)
 
 
 class DummyConsole:
@@ -95,15 +99,17 @@ def test_process_directory_dry_run(movie: Path) -> None:
     "format_key,expected",
     [
         (DEFAULT_RENAME_FORMAT_KEY, "The Matrix.mkv"),
-        ("show_numbers", "The Matrix.mkv"),
-        ("show_episode", "The Matrix.mkv"),
-        ("show_only", "The Matrix.mkv"),
+        ("movie_title_year", "The Matrix (1999).mkv"),
     ],
 )
 def test_process_directory_custom_formats(movie: Path, format_key: str, expected: str) -> None:
     movie_info = IMDBMovie(id="tt0133093", title="The Matrix", year="1999")
     client = DummyClient([movie_info])
-    renamer = MovieRenamer(client, console=DummyConsole(["1"]), rename_format=format_key)
+    renamer = MovieRenamer(
+        client,
+        console=DummyConsole(["1"]),
+        rename_format=format_key,
+    )
 
     directory = movie.parent
     results = renamer.process_directory(directory, dry_run=True, search_limit=5)
@@ -132,7 +138,11 @@ def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
         episode_title="Static",
     )
     client = DummyClient([episode_metadata])
-    renamer = MovieRenamer(client, console=DummyConsole(["1"]))
+    renamer = MovieRenamer(
+        client,
+        console=DummyConsole(["1"]),
+        media_mode="tv",
+    )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
 
@@ -153,6 +163,7 @@ def test_show_numbers_format_appends_marker(tv_episode: Path) -> None:
         client,
         console=DummyConsole(["1"]),
         rename_format="show_numbers",
+        media_mode="tv",
     )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
