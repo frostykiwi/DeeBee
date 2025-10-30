@@ -505,6 +505,90 @@ class TheTVDBClient:
             }),
         ]
 
+        season_type_options = (
+            "official",
+            "default",
+            "aired",
+            "standard",
+            "dvd",
+            "absolute",
+        )
+
+        for season_type in season_type_options:
+            attempts.extend(
+                [
+                    ((series_id, season_type, season_number, episode_number), {}),
+                    (
+                        (series_id,),
+                        {
+                            "season": season_number,
+                            "episode": episode_number,
+                            "season_type": season_type,
+                        },
+                    ),
+                    (
+                        (series_id,),
+                        {
+                            "season": season_number,
+                            "episode": episode_number,
+                            "seasonType": season_type,
+                        },
+                    ),
+                    (
+                        (series_id,),
+                        {
+                            "seasonNumber": season_number,
+                            "episodeNumber": episode_number,
+                            "season_type": season_type,
+                        },
+                    ),
+                    (
+                        (series_id,),
+                        {
+                            "seasonNumber": season_number,
+                            "episodeNumber": episode_number,
+                            "seasonType": season_type,
+                        },
+                    ),
+                    (
+                        (),
+                        {
+                            "series": series_id,
+                            "season": season_number,
+                            "episode": episode_number,
+                            "season_type": season_type,
+                        },
+                    ),
+                    (
+                        (),
+                        {
+                            "series": series_id,
+                            "season": season_number,
+                            "episode": episode_number,
+                            "seasonType": season_type,
+                        },
+                    ),
+                    (
+                        (),
+                        {
+                            "seriesId": series_id,
+                            "seasonNumber": season_number,
+                            "episodeNumber": episode_number,
+                            "season_type": season_type,
+                        },
+                    ),
+                    (
+                        (),
+                        {
+                            "seriesId": series_id,
+                            "seasonNumber": season_number,
+                            "episodeNumber": episode_number,
+                            "seasonType": season_type,
+                        },
+                    ),
+                ]
+            )
+
         for args, kwargs in attempts:
             filtered_kwargs = {key: value for key, value in kwargs.items() if value is not None}
             try:
