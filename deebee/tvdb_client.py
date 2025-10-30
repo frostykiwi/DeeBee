@@ -62,6 +62,7 @@ class TVDBSeries:
     id: int
     title: str
     year: Optional[str]
+    episode_title: Optional[str] = None
 
     @classmethod
     def from_dict(cls, payload: Any) -> "TVDBSeries":

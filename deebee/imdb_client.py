@@ -23,7 +23,8 @@ class IMDBMovie:
 
     id: str
     title: str
-    year: Optional[str]
+    year: Optional[str] = None
+    episode_title: Optional[str] = None
 
     @classmethod
     def from_dict(cls, payload: dict) -> "IMDBMovie":
@@ -42,10 +43,23 @@ class IMDBMovie:
         )
         year = str(year_value) if year_value else None
 
+        episode_title = (
+            (payload.get("episodeTitle") or {}).get("text")
+            if isinstance(payload.get("episodeTitle"), dict)
+            else payload.get("episodeTitle")
+        )
+        if not episode_title:
+            episode = payload.get("episodeTitle") or payload.get("episode")
+            if isinstance(episode, dict):
+                episode_title = episode.get("title") or episode.get("name")
+            elif isinstance(episode, str):
+                episode_title = episode
+
         return cls(
             id=payload.get("id", ""),
             title=title,
             year=year,
+            episode_title=episode_title if episode_title else None,
         )
 
     def display_text(self) -> str:

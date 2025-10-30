@@ -72,7 +72,7 @@ def test_process_directory_dry_run(movie: Path) -> None:
     assert client.calls == [("The Matrix 1999", 5)]
     assert len(results) == 1
     candidate = results[0]
-    assert candidate.proposed_filename == "The Matrix (1999).mkv"
+    assert candidate.proposed_filename == "The Matrix.mkv"
     # Ensure dry run did not rename the file.
     assert movie.exists()
 
@@ -80,11 +80,10 @@ def test_process_directory_dry_run(movie: Path) -> None:
 @pytest.mark.parametrize(
     "format_key,expected",
     [
-        (DEFAULT_RENAME_FORMAT_KEY, "The Matrix (1999).mkv"),
-        ("title_dash_year", "The Matrix - 1999.mkv"),
-        ("year_dash_title", "1999 - The Matrix.mkv"),
-        ("title_only", "The Matrix.mkv"),
-        ("title_brackets_year", "The Matrix [1999].mkv"),
+        (DEFAULT_RENAME_FORMAT_KEY, "The Matrix.mkv"),
+        ("show_numbers", "The Matrix.mkv"),
+        ("show_episode", "The Matrix.mkv"),
+        ("show_only", "The Matrix.mkv"),
     ],
 )
 def test_process_directory_custom_formats(movie: Path, format_key: str, expected: str) -> None:
@@ -96,7 +95,8 @@ def test_process_directory_custom_formats(movie: Path, format_key: str, expected
     results = renamer.process_directory(directory, dry_run=True, search_limit=5)
 
     assert len(results) == 1
-    assert results[0].proposed_filename == expected
+    candidate = results[0]
+    assert candidate.proposed_filename == expected
 
 
 def test_missing_year_uses_title_only(movie: Path) -> None:
@@ -111,7 +111,12 @@ def test_missing_year_uses_title_only(movie: Path) -> None:
 
 
 def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
-    episode_metadata = IMDBMovie(id="tt999", title="The Expanse", year="2015")
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
     client = DummyClient([episode_metadata])
     renamer = MovieRenamer(client, console=DummyConsole(["1"]))
 
@@ -119,4 +124,24 @@ def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
 
     assert client.calls == [("The Expanse", 5)]
     assert len(results) == 1
-    assert results[0].proposed_filename == "The Expanse (2015) S02E03.mkv"
+    assert results[0].proposed_filename == "The Expanse - Static - S02E03.mkv"
+
+
+def test_show_numbers_format_appends_marker(tv_episode: Path) -> None:
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata])
+    renamer = MovieRenamer(
+        client,
+        console=DummyConsole(["1"]),
+        rename_format="show_numbers",
+    )
+
+    results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
+
+    assert len(results) == 1
+    assert results[0].proposed_filename == "The Expanse - S02E03.mkv"
