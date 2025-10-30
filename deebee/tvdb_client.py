@@ -232,6 +232,57 @@ class TheTVDBClient:
         logger.debug("TVDB query '%s' returned %d result(s)", query, len(series_list))
         return series_list[:normalized_limit]
 
+    def search_episode(
+        self,
+        series_name: str,
+        season_number: Optional[int],
+        episode_number: Optional[int],
+        *,
+        limit: int = 10,
+    ) -> List[TVDBSeries]:
+        """Search for a specific episode within ``series_name``.
+
+        When the provided season and episode numbers can be resolved to a
+        translated title, the returned :class:`TVDBSeries` objects include the
+        episode title for improved rename suggestions. If the lookup fails or
+        the inputs are incomplete, this method gracefully falls back to a
+        regular series search.
+        """
+
+        base_matches = self.search(series_name, limit=limit)
+        if not base_matches:
+            return []
+
+        if season_number is None or episode_number is None:
+            return base_matches
+
+        enriched: list[TVDBSeries] = []
+        for series in base_matches:
+            episode_title: Optional[str] = None
+            if series.id:
+                try:
+                    episode_title = self._lookup_episode_title(
+                        series.id, season_number, episode_number
+                    )
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.debug(
+                        "Failed episode lookup for series_id=%s season=%s episode=%s: %s",
+                        series.id,
+                        season_number,
+                        episode_number,
+                        exc,
+                    )
+            enriched.append(
+                TVDBSeries(
+                    id=series.id,
+                    title=series.title,
+                    year=series.year,
+                    episode_title=episode_title,
+                )
+            )
+
+        return enriched
+
     def _perform_search(self, query: str, limit: int) -> Iterable[Any]:
         search_callables = self._locate_search_callables()
         if not search_callables:
@@ -336,3 +387,181 @@ class TheTVDBClient:
         if isinstance(payload, Iterable):
             return list(payload)
         return [payload]
+
+    def _lookup_episode_title(
+        self, series_id: int, season_number: int, episode_number: int
+    ) -> Optional[str]:
+        """Return the translated episode title for the provided identifiers."""
+
+        lookup_callables = self._locate_episode_callables()
+        if not lookup_callables:
+            logger.debug("No TVDB episode lookup methods available on client")
+            return None
+
+        last_error: Optional[Exception] = None
+        for func in lookup_callables:
+            try:
+                payload = self._invoke_episode_lookup(
+                    func, series_id, season_number, episode_number
+                )
+            except TypeError as exc:
+                last_error = exc
+                continue
+            except Exception:
+                raise
+            else:
+                title = self._extract_episode_title(payload)
+                if title:
+                    return title
+
+        if last_error is not None:
+            logger.debug("Episode lookup failed for series %s: %s", series_id, last_error)
+        return None
+
+    def _locate_episode_callables(self) -> List[Any]:
+        """Locate callables that can retrieve episode information."""
+
+        candidates: list[Any] = []
+        for name in (
+            "get_episode_by_number",
+            "getEpisodeByNumber",
+            "episode_by_number",
+            "episodeByNumber",
+            "episodes_by_number",
+            "episodesByNumber",
+        ):
+            attr = getattr(self._client, name, None)
+            if callable(attr):
+                candidates.append(attr)
+
+        for container_name in ("episodes", "episode", "series"):
+            container = getattr(self._client, container_name, None)
+            if container is None:
+                continue
+            for name in (
+                "get_episode_by_number",
+                "getEpisodeByNumber",
+                "episode_by_number",
+                "episodeByNumber",
+                "by_number",
+                "byNumber",
+                "get",
+                "retrieve",
+            ):
+                attr = getattr(container, name, None)
+                if callable(attr):
+                    candidates.append(attr)
+            nested = getattr(container, "episodes", None)
+            if nested is None:
+                continue
+            for name in (
+                "get",
+                "get_episode_by_number",
+                "episode_by_number",
+                "episodeByNumber",
+                "by_number",
+                "byNumber",
+                "retrieve",
+            ):
+                attr = getattr(nested, name, None)
+                if callable(attr):
+                    candidates.append(attr)
+
+        unique: list[Any] = []
+        seen: set[int] = set()
+        for func in candidates:
+            identifier = id(func)
+            if identifier in seen:
+                continue
+            unique.append(func)
+            seen.add(identifier)
+        return unique
+
+    def _invoke_episode_lookup(
+        self,
+        func: Any,
+        series_id: int,
+        season_number: int,
+        episode_number: int,
+    ) -> Any:
+        """Invoke ``func`` with several likely signatures for episode lookups."""
+
+        attempts: list[tuple[tuple[Any, ...], dict[str, Any]]] = [
+            ((series_id, season_number, episode_number), {}),
+            ((series_id,), {"season": season_number, "episode": episode_number}),
+            ((series_id,), {"seasonNumber": season_number, "episodeNumber": episode_number}),
+            ((series_id, season_number), {"episode": episode_number}),
+            ((series_id,), {"season": season_number, "episodeNumber": episode_number}),
+            ((series_id,), {"seasonNumber": season_number, "episode": episode_number}),
+            ((), {
+                "series": series_id,
+                "season": season_number,
+                "episode": episode_number,
+            }),
+            ((), {
+                "seriesId": series_id,
+                "seasonNumber": season_number,
+                "episodeNumber": episode_number,
+            }),
+        ]
+
+        for args, kwargs in attempts:
+            filtered_kwargs = {key: value for key, value in kwargs.items() if value is not None}
+            try:
+                return func(*args, **filtered_kwargs)
+            except TypeError:
+                continue
+
+        raise TypeError("The provided TVDB episode callable did not accept any recognised signature.")
+
+    def _extract_episode_title(self, payload: Any) -> Optional[str]:
+        """Extract an episode title from an arbitrary payload."""
+
+        if payload is None:
+            return None
+
+        data = _coerce_payload(payload)
+        nested = data.get("data")
+        if isinstance(nested, dict):
+            data = nested
+
+        translations = data.get("translations")
+        if isinstance(translations, dict):
+            translation_candidates = [translations]
+        elif isinstance(translations, list):
+            translation_candidates = [
+                _coerce_payload(item) for item in translations if item is not None
+            ]
+        else:
+            translation_candidates = []
+
+        for key in (
+            "name",
+            "episodeName",
+            "episode_name",
+            "episodeTitle",
+            "title",
+            "slug",
+        ):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        episode_info = data.get("episode")
+        if isinstance(episode_info, dict):
+            for key in ("name", "title"):
+                value = episode_info.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(episode_info, str) and episode_info.strip():
+            return episode_info.strip()
+
+        for translation in translation_candidates:
+            if not isinstance(translation, dict):
+                continue
+            for key in ("name", "title"):
+                value = translation.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+
+        return None

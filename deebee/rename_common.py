@@ -229,7 +229,7 @@ class BaseRenamer(Generic[TMetadata]):
                 search_info.season_number,
                 search_info.episode_number,
             )
-            results = self._media_client.search(query, limit=search_limit)
+            results = self._perform_search(search_info, search_limit)
             logger.debug(
                 "Received %d result(s) for query '%s' (limit=%d)",
                 len(results),
@@ -322,6 +322,11 @@ class BaseRenamer(Generic[TMetadata]):
         logger.debug("Normalized search query for %s: '%s'", path.name, query)
 
         return MediaSearchQuery(query=query, season_number=season_number, episode_number=episode_number)
+
+    def _perform_search(self, search_info: MediaSearchQuery, limit: int) -> List[TMetadata]:
+        """Execute a metadata search for ``search_info`` using ``limit`` results."""
+
+        return self._media_client.search(search_info.query, limit=limit)
 
     def _determine_target_path(self, candidate: MediaCandidate[TMetadata]) -> Tuple[Path, bool]:
         """Return a filesystem path for ``candidate`` that avoids clobbering existing files."""
