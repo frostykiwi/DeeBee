@@ -214,6 +214,37 @@ def test_tv_episode_search_falls_back_on_exception(tv_episode: Path) -> None:
     assert results[0].proposed_filename == "The Expanse - Static - S02E03.mkv"
 
 
+def test_skips_when_filename_already_matches(tmp_path: Path) -> None:
+    episode_path = tmp_path / "The Expanse - Static - S02E03.mkv"
+    episode_path.write_text("dummy")
+
+    episode_metadata = IMDBMovie(
+        id="tt999",
+        title="The Expanse",
+        year="2015",
+        episode_title="Static",
+    )
+    client = DummyClient([episode_metadata])
+    console = DummyConsole(["1"])
+    renamer = TVRenamer(client, console=console)
+
+    results = renamer.process_directory(tmp_path, dry_run=True, search_limit=5)
+
+    assert client.calls
+    method, _, season, episode, _ = client.calls[0]
+    assert method == "search_episode"
+    assert season == 2
+    assert episode == 3
+    assert results == []
+    assert any(
+        args
+        and isinstance(args[0], str)
+        and "Already matches target format:" in args[0]
+        for args, _ in console.printed
+    )
+    assert episode_path.exists()
+
+
 def test_show_numbers_format_appends_marker(tv_episode: Path) -> None:
     episode_metadata = IMDBMovie(
         id="tt999",

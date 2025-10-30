@@ -251,6 +251,13 @@ class BaseRenamer(Generic[TMetadata]):
                 season_number=search_info.season_number,
                 episode_number=search_info.episode_number,
             )
+
+            if candidate.proposed_path == media_file:
+                self._console.print(
+                    f"[green]Already matches target format:[/] {media_file.name}"
+                )
+                continue
+
             selected_candidates.append(candidate)
 
             target_path, adjusted = self._determine_target_path(candidate)
@@ -332,6 +339,9 @@ class BaseRenamer(Generic[TMetadata]):
         """Return a filesystem path for ``candidate`` that avoids clobbering existing files."""
 
         proposed_path = candidate.proposed_path
+        if proposed_path == candidate.original_path:
+            return proposed_path, False
+
         if not proposed_path.exists():
             return proposed_path, False
 
