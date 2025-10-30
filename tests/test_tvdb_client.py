@@ -58,3 +58,41 @@ def test_invoke_episode_lookup_tries_alternative_signatures() -> None:
     # Ensure at least one attempt used the camelCase seasonType keyword.
     assert any("seasonType" in kwargs for _, kwargs in attempts)
 
+
+def test_extract_episode_from_collection_prefers_exact_match() -> None:
+    """Collection extraction should return the episode matching the numbers."""
+
+    client = object.__new__(TheTVDBClient)
+
+    payload = {
+        "data": {
+            "episodes": [
+                {"seasonNumber": 2, "number": 3, "name": "Target"},
+                {"seasonNumber": 2, "number": 4, "name": "Other"},
+            ]
+        }
+    }
+
+    title = client._extract_episode_from_collection(payload, 2, 3)
+
+    assert title == "Target"
+
+
+def test_extract_episode_from_collection_falls_back_to_first_entry() -> None:
+    """When the API filters results, fall back to the first available title."""
+
+    client = object.__new__(TheTVDBClient)
+
+    payload = {
+        "data": {
+            "episodes": [
+                {"name": "Filtered Title"},
+                {"name": "Unused"},
+            ]
+        }
+    }
+
+    title = client._extract_episode_from_collection(payload, 1, 1)
+
+    assert title == "Filtered Title"
+
