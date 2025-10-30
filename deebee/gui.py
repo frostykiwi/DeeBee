@@ -95,14 +95,25 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
             selected_candidates.append(candidate)
 
             if dry_run:
-                self._log(f"DRY RUN: {movie_file.name} -> {candidate.proposed_filename}")
+                target_path, adjusted = self._determine_target_path(candidate)
+                display_name = target_path.name
+                self._log(f"DRY RUN: {movie_file.name} -> {display_name}")
+                if adjusted:
+                    self._log(
+                        f"Note: {candidate.proposed_filename} already exists. Would use {display_name} instead."
+                    )
             else:
                 try:
-                    movie_file.rename(candidate.proposed_path)
+                    target_path, adjusted = self._determine_target_path(candidate)
+                    if adjusted:
+                        self._log(
+                            f"Adjusted target to avoid overwriting existing file: {candidate.proposed_filename} -> {target_path.name}"
+                        )
+                    movie_file.rename(target_path)
                 except OSError as exc:
                     self._log(f"Failed to rename {movie_file.name}: {exc}")
                 else:
-                    self._log(f"Renamed {movie_file.name} -> {candidate.proposed_filename}")
+                    self._log(f"Renamed {movie_file.name} -> {target_path.name}")
 
         return selected_candidates
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Iterable, List, Optional, TYPE_CHECKING
 
@@ -77,6 +78,9 @@ class IMDBClient:
         *,
         session: Optional["requests.Session"] = None,
         base_url: str = "https://api.imdbapi.dev",
+        timeout: float = 5.0,
+        max_retries: int = 3,
+        backoff_factor: float = 0.5,
     ) -> None:
         """Create a new client.
 
@@ -91,6 +95,16 @@ class IMDBClient:
             for testing.
         base_url:
             Base URL for the imdbapi.dev service.
+        timeout:
+            Number of seconds to wait for a response before aborting the request.
+            Values less than or equal to zero disable the explicit timeout and
+            fall back to the underlying ``requests`` default.
+        max_retries:
+            Total number of attempts to make for a search request before
+            surfacing the error to callers.
+        backoff_factor:
+            Delay factor, in seconds, used for exponential backoff between
+            retry attempts.
         """
 
         if requests is None:  # pragma: no cover - exercised in runtime environments without dependency
@@ -98,6 +112,9 @@ class IMDBClient:
 
         self._session = session or requests.Session()
         self._base_url = base_url.rstrip("/")
+        self._timeout = timeout if timeout and timeout > 0 else None
+        self._max_retries = max(1, int(max_retries))
+        self._backoff_factor = max(0.0, backoff_factor)
         # imdbapi.dev does not require authentication. The attribute is retained
         # to avoid breaking callers that still pass an ``api_key`` argument in
         # anticipation of the service introducing tokens in the future.
@@ -118,11 +135,40 @@ class IMDBClient:
         # headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
         logger.debug("Requesting IMDB titles with query='%s' and limit=%d", query, params["limit"])
 
-        response = self._session.get(
-            f"{self._base_url}/search/titles",
-            params=params,
-            # headers=headers,
-        )
+        attempt = 0
+        last_error: Optional[Exception] = None
+        while attempt < self._max_retries:
+            try:
+                response = self._session.get(
+                    f"{self._base_url}/search/titles",
+                    params=params,
+                    timeout=self._timeout,
+                    # headers=headers,
+                )
+                break
+            except requests.exceptions.RequestException as exc:  # type: ignore[union-attr]
+                last_error = exc
+                attempt += 1
+                if attempt >= self._max_retries:
+                    logger.error(
+                        "IMDB lookup failed after %d attempt(s) for query '%s'", attempt, query
+                    )
+                    raise
+                delay = self._backoff_factor * (2 ** (attempt - 1))
+                logger.warning(
+                    "IMDB lookup error on attempt %d/%d for query '%s': %s. Retrying in %.2fs",
+                    attempt,
+                    self._max_retries,
+                    query,
+                    exc,
+                    delay,
+                )
+                if delay:
+                    time.sleep(delay)
+        else:  # pragma: no cover - defensive guard, loop always breaks or raises
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("IMDBClient search attempts exhausted without response.")
         response.raise_for_status()
         payload = response.json()
 
