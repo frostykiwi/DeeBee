@@ -1,4 +1,4 @@
-# DeeBee
+# DeeBee V1 (Beta)
 
 DeeBee is a Python 3.10+ toolkit that tidies movie and TV show folders by matching each file against imdbapi.dev metadata and renaming it with clean, human-friendly titles. Out of the box, you can install it in editable mode and launch it as a simple db command-line utility or as an experimental db-gui desktop app built with Tkinter.
 
@@ -16,7 +16,7 @@ Optional desktop experience. Prefer a visual review? The Tkinter GUI lets you br
 
 
 This was developed by me (FrostyKiwi) with the assistance of Codex.
-
+Currently in beta phase. Open to contributions.
 
 ## Requirements
 
