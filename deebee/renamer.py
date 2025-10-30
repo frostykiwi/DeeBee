@@ -121,6 +121,7 @@ class RenameFormatSpec:
     key: str
     label: str
     builder: NameBuilder
+    modes: tuple[str, ...] = ("movie", "tv")
 
     def build_name(self, context: RenameContext) -> str:
         """Return the filename (without extension) for the provided metadata."""
@@ -128,6 +129,12 @@ class RenameFormatSpec:
         name = self.builder(context)
         name = re.sub(r"\s+", " ", name).strip()
         return name or context.series_title
+
+    def supports_mode(self, mode: str) -> bool:
+        """Return ``True`` if this format can be used for ``mode``."""
+
+        normalized = mode.lower()
+        return normalized in self.modes
 
 
 def _format_show_episode_with_numbers(context: RenameContext) -> str:
@@ -158,26 +165,65 @@ def _format_show_only(context: RenameContext) -> str:
     return context.series_title
 
 
-AVAILABLE_RENAME_FORMATS = {
+def _format_movie_title_with_year(context: RenameContext) -> str:
+    if context.year:
+        return f"{context.series_title} ({context.year})"
+    return context.series_title
+
+
+def _format_movie_title(context: RenameContext) -> str:
+    return context.series_title
+
+
+MOVIE_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
+    "movie_title": RenameFormatSpec(
+        "movie_title",
+        "Movie Title",
+        _format_movie_title,
+        ("movie",),
+    ),
+    "movie_title_year": RenameFormatSpec(
+        "movie_title_year",
+        "Movie Title (Year)",
+        _format_movie_title_with_year,
+        ("movie",),
+    ),
+}
+
+TV_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
     "show_episode_numbers": RenameFormatSpec(
         "show_episode_numbers",
         "TV Show Name - Episode Name - S##E##",
         _format_show_episode_with_numbers,
+        ("tv",),
     ),
     "show_numbers": RenameFormatSpec(
         "show_numbers",
         "TV Show Name - S##E##",
         _format_show_with_numbers,
+        ("tv",),
     ),
     "show_episode": RenameFormatSpec(
         "show_episode",
         "TV Show Name - Episode Name",
         _format_show_episode,
+        ("tv",),
     ),
-    "show_only": RenameFormatSpec("show_only", "TV Show Name", _format_show_only),
+    "show_only": RenameFormatSpec(
+        "show_only",
+        "TV Show Name",
+        _format_show_only,
+        ("tv",),
+    ),
 }
 
-DEFAULT_RENAME_FORMAT_KEY = "show_episode_numbers"
+AVAILABLE_RENAME_FORMATS: dict[str, RenameFormatSpec] = {
+    **MOVIE_RENAME_FORMATS,
+    **TV_RENAME_FORMATS,
+}
+
+DEFAULT_RENAME_FORMAT_KEY = "movie_title"
+DEFAULT_TV_RENAME_FORMAT_KEY = "show_episode_numbers"
 
 
 def _sanitize_title(title: str) -> str:
@@ -221,32 +267,60 @@ class MovieCandidate(Generic[TMetadata]):
 
 
 class MovieRenamer(Generic[TMetadata]):
-    """Core orchestrator for scanning directories and renaming movie files."""
+    """Core orchestrator for scanning directories and renaming media files."""
 
     def __init__(
         self,
-        imdb_client: MediaSearchClient[TMetadata],
+        media_client: MediaSearchClient[TMetadata],
         console: Optional[Console] = None,
         *,
-        rename_format: str = DEFAULT_RENAME_FORMAT_KEY,
+        rename_format: Optional[str] = None,
+        media_mode: str = "movie",
     ) -> None:
-        self._imdb_client = imdb_client
+        self._media_client = media_client
         self._console = console or Console()
-        self._format_spec = self._resolve_format(rename_format)
+        self._media_mode = media_mode.lower()
+        if self._media_mode not in {"movie", "tv"}:
+            raise ValueError("media_mode must be either 'movie' or 'tv'.")
+
+        if rename_format is None:
+            rename_format = (
+                DEFAULT_TV_RENAME_FORMAT_KEY
+                if self._media_mode == "tv"
+                else DEFAULT_RENAME_FORMAT_KEY
+            )
+
+        self._format_spec = self._resolve_format(rename_format, self._media_mode)
 
     @staticmethod
-    def available_formats() -> List[RenameFormatSpec]:
+    def available_formats(mode: Optional[str] = None) -> List[RenameFormatSpec]:
         """Return the available rename format specifications."""
 
-        return list(AVAILABLE_RENAME_FORMATS.values())
+        if mode is None:
+            return list(AVAILABLE_RENAME_FORMATS.values())
+
+        normalized = mode.lower()
+        if normalized not in {"movie", "tv"}:
+            raise ValueError("mode must be 'movie', 'tv', or None")
+
+        return [
+            spec
+            for spec in AVAILABLE_RENAME_FORMATS.values()
+            if spec.supports_mode(normalized)
+        ]
 
     @staticmethod
-    def _resolve_format(key: str) -> RenameFormatSpec:
+    def _resolve_format(key: str, mode: Optional[str] = None) -> RenameFormatSpec:
         try:
-            return AVAILABLE_RENAME_FORMATS[key]
+            spec = AVAILABLE_RENAME_FORMATS[key]
         except KeyError as exc:  # pragma: no cover - defensive programming
             available = ", ".join(sorted(AVAILABLE_RENAME_FORMATS))
             raise ValueError(f"Unknown rename format '{key}'. Available: {available}") from exc
+
+        if mode is not None and not spec.supports_mode(mode):
+            raise ValueError(f"Rename format '{key}' is not valid for {mode} mode.")
+
+        return spec
 
     def process_directory(
         self,
@@ -276,7 +350,7 @@ class MovieRenamer(Generic[TMetadata]):
                 search_info.season_number,
                 search_info.episode_number,
             )
-            results = self._imdb_client.search(query, limit=search_limit)
+            results = self._media_client.search(query, limit=search_limit)
             logger.debug(
                 "Received %d result(s) for query '%s' (limit=%d)",
                 len(results),

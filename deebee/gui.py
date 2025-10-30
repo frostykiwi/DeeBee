@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from .imdb_client import IMDBClient
 from .renamer import (
     DEFAULT_RENAME_FORMAT_KEY,
+    DEFAULT_TV_RENAME_FORMAT_KEY,
     MediaMetadata,
     MediaSearchClient,
     MovieCandidate,
@@ -32,9 +33,15 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
         root: tk.Misc,
         log_callback: Optional[LogCallback] = None,
         *,
-        rename_format: str = DEFAULT_RENAME_FORMAT_KEY,
+        rename_format: Optional[str] = None,
+        media_mode: str = "movie",
     ) -> None:
-        super().__init__(media_client, console=None, rename_format=rename_format)
+        super().__init__(
+            media_client,
+            console=None,
+            rename_format=rename_format,
+            media_mode=media_mode,
+        )
         self._root = root
         self._log = log_callback or (lambda message: None)
         self._stop_requested = False
@@ -65,7 +72,7 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
             self._log(
                 f"Searching matches for {movie_file.name}{search_details} using query '{search_info.query}'..."
             )
-            results = self._imdb_client.search(search_info.query, limit=search_limit)
+            results = self._media_client.search(search_info.query, limit=search_limit)
             if not results:
                 self._log(f"No matches found for {movie_file.name}.")
                 continue
@@ -164,33 +171,60 @@ class DeeBeeApp:
         self._tvdb_api_key: Optional[str] = None
         self._tvdb_pin: Optional[str] = None
         self._mode_label_var = tk.StringVar()
+        self._format_var = tk.StringVar()
+        self._format_options: list[tuple[str, str]] = []
+        self._format_combo: Optional[ttk.Combobox] = None
 
         self._prompt_mode_selection()
-        self._update_window_title()
+        self._apply_mode_change()
 
         self._path_var = tk.StringVar(value=str(Path.cwd()))
         self._limit_var = tk.IntVar(value=10)
         self._dry_run_var = tk.BooleanVar(value=True)
         self._logging_enabled_var = tk.BooleanVar(value=True)
-        self._format_options = [
-            (spec.key, spec.label) for spec in MovieRenamer.available_formats()
-        ]
-        default_label = next(
-            (label for key, label in self._format_options if key == DEFAULT_RENAME_FORMAT_KEY),
-            self._format_options[0][1],
-        )
-        self._format_var = tk.StringVar(value=default_label)
 
         self._build_widgets()
-        self._update_mode_label()
+        self._apply_mode_change()
 
     def _update_window_title(self) -> None:
-        mode_display = "Movies" if self._mode == "movie" else "TV Shows"
+        if self._mode == "movie":
+            mode_display = "MOVIE MODE (IMDB API)"
+        else:
+            mode_display = "TV MODE (TheTVDB API Tool)"
         self._root.title(f"DeeBee - {mode_display}")
 
     def _update_mode_label(self) -> None:
-        mode_display = "Movies" if self._mode == "movie" else "TV Shows"
-        self._mode_label_var.set(f"Mode: {mode_display}")
+        if self._mode == "movie":
+            mode_display = "MOVIE MODE (uses the IMDB API)"
+        else:
+            mode_display = "TV MODE (uses TheTVDB API Tool)"
+        self._mode_label_var.set(f"Active Mode: {mode_display}")
+
+    def _load_format_options(self) -> None:
+        specs = MovieRenamer.available_formats(mode=self._mode)
+        self._format_options = [(spec.key, spec.label) for spec in specs]
+
+        if not self._format_options:
+            self._format_var.set("")
+            if self._format_combo is not None:
+                self._format_combo.configure(values=[])
+            return
+
+        default_key = (
+            DEFAULT_TV_RENAME_FORMAT_KEY if self._mode == "tv" else DEFAULT_RENAME_FORMAT_KEY
+        )
+        if not any(key == default_key for key, _ in self._format_options):
+            default_key = self._format_options[0][0]
+
+        default_label = next(
+            label for key, label in self._format_options if key == default_key
+        )
+        self._format_var.set(default_label)
+
+        if self._format_combo is not None:
+            labels = [label for _, label in self._format_options]
+            self._format_combo.configure(values=labels)
+            self._format_combo.set(default_label)
 
     def _prompt_mode_selection(self) -> None:
         dialog = tk.Toplevel(self._root)
@@ -202,7 +236,15 @@ class DeeBeeApp:
         api_key_var = tk.StringVar(value=self._tvdb_api_key or "")
         pin_var = tk.StringVar(value=self._tvdb_pin or "")
 
-        ttk.Label(dialog, text="Choose the data source to use before continuing.").pack(padx=10, pady=(10, 5))
+        ttk.Label(
+            dialog,
+            text=(
+                "There are two independent modes:\n"
+                "• MOVIE MODE uses the IMDB API for films.\n"
+                "• TV MODE uses TheTVDB API Tool for series."
+            ),
+            justify=tk.LEFT,
+        ).pack(padx=10, pady=(10, 5))
 
         radio_frame = ttk.Frame(dialog)
         radio_frame.pack(padx=10, pady=5, fill=tk.X)
@@ -249,20 +291,27 @@ class DeeBeeApp:
             self._mode = selected_mode
             self._tvdb_api_key = api_key_value or None
             self._tvdb_pin = pin_value or None
-            self._update_window_title()
-            self._update_mode_label()
+            self._apply_mode_change()
             dialog.destroy()
 
         ttk.Button(button_frame, text="Continue", command=on_continue).pack()
 
         self._root.wait_window(dialog)
 
+    def _apply_mode_change(self) -> None:
+        self._update_window_title()
+        self._update_mode_label()
+        self._load_format_options()
+
     def _build_widgets(self) -> None:
         main_frame = ttk.Frame(self._root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(main_frame, textvariable=self._mode_label_var).grid(
-            row=0, column=0, columnspan=3, sticky=tk.W, pady=(0, 5)
+            row=0, column=0, columnspan=2, sticky=tk.W, pady=(0, 5)
+        )
+        ttk.Button(main_frame, text="Change Mode", command=self._change_mode).grid(
+            row=0, column=2, sticky=tk.E, pady=(0, 5)
         )
 
         ttk.Label(main_frame, text="Directory:").grid(row=1, column=0, sticky=tk.W)
@@ -286,6 +335,7 @@ class DeeBeeApp:
             width=20,
         )
         format_combo.grid(row=3, column=1, sticky=tk.W, pady=2)
+        self._format_combo = format_combo
 
         logging_check = ttk.Checkbutton(
             main_frame,
@@ -308,6 +358,10 @@ class DeeBeeApp:
 
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(4, weight=1)
+
+    def _change_mode(self) -> None:
+        self._prompt_mode_selection()
+        self._apply_mode_change()
 
     def _choose_directory(self) -> None:
         directory = filedialog.askdirectory(initialdir=self._path_var.get() or None)
@@ -337,8 +391,11 @@ class DeeBeeApp:
             messagebox.showerror("Invalid limit", "Result limit must be a number.")
             return
 
-        mode_display = "movies" if self._mode == "movie" else "TV shows"
-        self._append_log(f"Starting scan in {directory} using {mode_display} mode...")
+        if self._mode == "movie":
+            mode_display = "MOVIE MODE (IMDB API)"
+        else:
+            mode_display = "TV MODE (TheTVDB API Tool)"
+        self._append_log(f"Starting scan in {directory} using {mode_display}...")
 
         try:
             if self._mode == "tv":
@@ -367,6 +424,7 @@ class DeeBeeApp:
             self._root,
             self._append_log,
             rename_format=rename_format,
+            media_mode=self._mode,
         )
 
         try:

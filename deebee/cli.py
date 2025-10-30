@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=10,
         help="Maximum number of IMDB results to present",
     )
-    formats = MovieRenamer.available_formats()
+    formats = MovieRenamer.available_formats(mode="movie")
     format_descriptions = ", ".join(f"{spec.key}: {spec.label}" for spec in formats)
     parser.add_argument(
         "--format",
@@ -71,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         imdb_client,
         console,
         rename_format=args.rename_format,
+        media_mode="movie",
     )
 
     directory = Path(args.path)
