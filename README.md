@@ -15,6 +15,7 @@ Rich metadata handling. Behind the scenes, DeeBee’s IMDb client normalizes tit
 Optional desktop experience. Prefer a visual review? The Tkinter GUI lets you browse to a folder, sift through matches in dialog windows, skip or stop at any point, and apply renames with a click—still honoring dry-run previews for safety.
 
 
+This was developed by me (FrostyKiwi) with the assistance of Codex.
 
 
 ## Requirements
