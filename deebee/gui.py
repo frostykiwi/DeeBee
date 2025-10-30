@@ -9,14 +9,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from .imdb_client import IMDBClient
-from .renamer import (
-    DEFAULT_RENAME_FORMAT_KEY,
-    DEFAULT_TV_RENAME_FORMAT_KEY,
-    MediaMetadata,
-    MediaSearchClient,
-    MovieCandidate,
-    MovieRenamer,
-)
+from .movie_renamer import DEFAULT_MOVIE_RENAME_FORMAT_KEY, MovieRenamer
+from .rename_common import MediaCandidate, MediaMetadata, MediaSearchClient
+from .tv_renamer import DEFAULT_TV_RENAME_FORMAT_KEY, TVRenamer
 from .tvdb_client import TheTVDBClient
 
 
@@ -24,8 +19,8 @@ LogCallback = Callable[[str], None]
 TMetadata = TypeVar("TMetadata", bound=MediaMetadata)
 
 
-class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
-    """Movie renamer that interacts with a Tkinter UI instead of the console."""
+class GUIRenamerMixin(Generic[TMetadata]):
+    """Common GUI functionality for media renamers."""
 
     def __init__(
         self,
@@ -34,14 +29,8 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
         log_callback: Optional[LogCallback] = None,
         *,
         rename_format: Optional[str] = None,
-        media_mode: str = "movie",
     ) -> None:
-        super().__init__(
-            media_client,
-            console=None,
-            rename_format=rename_format,
-            media_mode=media_mode,
-        )
+        super().__init__(media_client, console=None, rename_format=rename_format)
         self._root = root
         self._log = log_callback or (lambda message: None)
         self._stop_requested = False
@@ -52,41 +41,41 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
         *,
         dry_run: bool = True,
         search_limit: int = 10,
-    ) -> List[MovieCandidate[TMetadata]]:
+    ) -> List[MediaCandidate[TMetadata]]:
         self._stop_requested = False
-        movie_files = list(self._discover_movie_files(directory))
-        if not movie_files:
-            self._log("No supported movie files were found in the selected directory.")
+        media_files = list(self._discover_media_files(directory))
+        if not media_files:
+            self._log("No supported media files were found in the selected directory.")
             return []
 
-        self._log(f"Processing {len(movie_files)} file(s) in {directory}.")
-        selected_candidates: List[MovieCandidate[TMetadata]] = []
+        self._log(f"Processing {len(media_files)} file(s) in {directory}.")
+        selected_candidates: List[MediaCandidate[TMetadata]] = []
 
-        for movie_file in movie_files:
-            search_info = self._prepare_search(movie_file)
+        for media_file in media_files:
+            search_info = self._prepare_search(media_file)
             search_details = (
                 f" (S{search_info.season_number:02d}E{search_info.episode_number:02d})"
                 if search_info.season_number is not None and search_info.episode_number is not None
                 else ""
             )
             self._log(
-                f"Searching matches for {movie_file.name}{search_details} using query '{search_info.query}'..."
+                f"Searching matches for {media_file.name}{search_details} using query '{search_info.query}'..."
             )
             results = self._media_client.search(search_info.query, limit=search_limit)
             if not results:
-                self._log(f"No matches found for {movie_file.name}.")
+                self._log(f"No matches found for {media_file.name}.")
                 continue
 
-            chosen = self._prompt_for_choice(movie_file, results)
+            chosen = self._prompt_for_choice(media_file, results)
             if self._stop_requested:
                 self._log("Processing stopped by user.")
                 break
             if chosen is None:
-                self._log(f"Skipped {movie_file.name}.")
+                self._log(f"Skipped {media_file.name}.")
                 continue
 
-            candidate = MovieCandidate(
-                movie_file,
+            candidate = MediaCandidate(
+                media_file,
                 chosen,
                 self._format_spec,
                 season_number=search_info.season_number,
@@ -97,7 +86,7 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
             if dry_run:
                 target_path, adjusted = self._determine_target_path(candidate)
                 display_name = target_path.name
-                self._log(f"DRY RUN: {movie_file.name} -> {display_name}")
+                self._log(f"DRY RUN: {media_file.name} -> {display_name}")
                 if adjusted:
                     self._log(
                         f"Note: {candidate.proposed_filename} already exists. Would use {display_name} instead."
@@ -109,11 +98,11 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
                         self._log(
                             f"Adjusted target to avoid overwriting existing file: {candidate.proposed_filename} -> {target_path.name}"
                         )
-                    movie_file.rename(target_path)
+                    media_file.rename(target_path)
                 except OSError as exc:
-                    self._log(f"Failed to rename {movie_file.name}: {exc}")
+                    self._log(f"Failed to rename {media_file.name}: {exc}")
                 else:
-                    self._log(f"Renamed {movie_file.name} -> {target_path.name}")
+                    self._log(f"Renamed {media_file.name} -> {target_path.name}")
 
         return selected_candidates
 
@@ -128,9 +117,9 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
         ttk.Label(dialog, text=f"Select the correct match for {file_path.name}").pack(padx=10, pady=10)
 
         listbox = tk.Listbox(dialog, width=60, height=8, exportselection=False)
-        for movie in matches:
-            year = movie.year or "?"
-            listbox.insert(tk.END, f"{movie.title} ({year})")
+        for media in matches:
+            year = media.year or "?"
+            listbox.insert(tk.END, f"{media.title} ({year})")
         listbox.pack(padx=10, pady=(0, 10), fill=tk.BOTH, expand=True)
 
         button_frame = ttk.Frame(dialog)
@@ -169,6 +158,34 @@ class GUIMovieRenamer(MovieRenamer[TMetadata], Generic[TMetadata]):
 
         self._root.wait_window(dialog)
         return selection["value"]
+
+
+class GUIMovieRenamer(GUIRenamerMixin[TMetadata], MovieRenamer[TMetadata]):
+    """Movie renamer that interacts with a Tkinter UI instead of the console."""
+
+    def __init__(
+        self,
+        media_client: MediaSearchClient[TMetadata],
+        root: tk.Misc,
+        log_callback: Optional[LogCallback] = None,
+        *,
+        rename_format: Optional[str] = None,
+    ) -> None:
+        super().__init__(media_client, root, log_callback, rename_format=rename_format)
+
+
+class GUITVRenamer(GUIRenamerMixin[TMetadata], TVRenamer[TMetadata]):
+    """TV renamer that interacts with a Tkinter UI instead of the console."""
+
+    def __init__(
+        self,
+        media_client: MediaSearchClient[TMetadata],
+        root: tk.Misc,
+        log_callback: Optional[LogCallback] = None,
+        *,
+        rename_format: Optional[str] = None,
+    ) -> None:
+        super().__init__(media_client, root, log_callback, rename_format=rename_format)
 
 
 class DeeBeeApp:
@@ -212,7 +229,12 @@ class DeeBeeApp:
         self._mode_label_var.set(f"Active Mode: {mode_display}")
 
     def _load_format_options(self) -> None:
-        specs = MovieRenamer.available_formats(mode=self._mode)
+        if self._mode == "tv":
+            specs = TVRenamer.available_formats()
+            default_key = DEFAULT_TV_RENAME_FORMAT_KEY
+        else:
+            specs = MovieRenamer.available_formats()
+            default_key = DEFAULT_MOVIE_RENAME_FORMAT_KEY
         self._format_options = [(spec.key, spec.label) for spec in specs]
 
         if not self._format_options:
@@ -221,9 +243,6 @@ class DeeBeeApp:
                 self._format_combo.configure(values=[])
             return
 
-        default_key = (
-            DEFAULT_TV_RENAME_FORMAT_KEY if self._mode == "tv" else DEFAULT_RENAME_FORMAT_KEY
-        )
         if not any(key == default_key for key, _ in self._format_options):
             default_key = self._format_options[0][0]
 
@@ -430,13 +449,20 @@ class DeeBeeApp:
             messagebox.showerror("Invalid format", "Selected filename format is not valid.")
             return
 
-        renamer = GUIMovieRenamer(
-            data_client,
-            self._root,
-            self._append_log,
-            rename_format=rename_format,
-            media_mode=self._mode,
-        )
+        if self._mode == "tv":
+            renamer = GUITVRenamer(
+                data_client,
+                self._root,
+                self._append_log,
+                rename_format=rename_format,
+            )
+        else:
+            renamer = GUIMovieRenamer(
+                data_client,
+                self._root,
+                self._append_log,
+                rename_format=rename_format,
+            )
 
         try:
             renamer.process_directory(directory, dry_run=self._dry_run_var.get(), search_limit=limit)

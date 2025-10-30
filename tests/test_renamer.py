@@ -4,11 +4,8 @@ from typing import List
 import pytest
 
 from deebee.imdb_client import IMDBMovie
-from deebee.renamer import (
-    DEFAULT_RENAME_FORMAT_KEY,
-    DEFAULT_TV_RENAME_FORMAT_KEY,
-    MovieRenamer,
-)
+from deebee.movie_renamer import DEFAULT_MOVIE_RENAME_FORMAT_KEY, MovieRenamer
+from deebee.tv_renamer import DEFAULT_TV_RENAME_FORMAT_KEY, TVRenamer
 
 
 class DummyConsole:
@@ -58,7 +55,7 @@ def test_guess_search_query(movie: Path) -> None:
 
 def test_prepare_search_extracts_episode_numbers(tv_episode: Path) -> None:
     client = DummyClient([])
-    renamer = MovieRenamer(client, console=DummyConsole())
+    renamer = TVRenamer(client, console=DummyConsole())
     search_info = renamer._prepare_search(tv_episode)
     assert search_info.query == "The Expanse"
     assert search_info.season_number == 2
@@ -70,7 +67,7 @@ def test_prepare_search_ignores_year_for_tv_episode(tmp_path: Path) -> None:
     episode_path.write_text("dummy")
 
     client = DummyClient([])
-    renamer = MovieRenamer(client, console=DummyConsole())
+    renamer = TVRenamer(client, console=DummyConsole())
 
     search_info = renamer._prepare_search(episode_path)
 
@@ -98,7 +95,7 @@ def test_process_directory_dry_run(movie: Path) -> None:
 @pytest.mark.parametrize(
     "format_key,expected",
     [
-        (DEFAULT_RENAME_FORMAT_KEY, "The Matrix.mkv"),
+        (DEFAULT_MOVIE_RENAME_FORMAT_KEY, "The Matrix.mkv"),
         ("movie_title_year", "The Matrix (1999).mkv"),
     ],
 )
@@ -138,10 +135,9 @@ def test_process_directory_includes_episode_numbers(tv_episode: Path) -> None:
         episode_title="Static",
     )
     client = DummyClient([episode_metadata])
-    renamer = MovieRenamer(
+    renamer = TVRenamer(
         client,
         console=DummyConsole(["1"]),
-        media_mode="tv",
     )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
@@ -159,11 +155,10 @@ def test_show_numbers_format_appends_marker(tv_episode: Path) -> None:
         episode_title="Static",
     )
     client = DummyClient([episode_metadata])
-    renamer = MovieRenamer(
+    renamer = TVRenamer(
         client,
         console=DummyConsole(["1"]),
         rename_format="show_numbers",
-        media_mode="tv",
     )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
@@ -180,11 +175,10 @@ def test_show_episode_format_respects_selection(tv_episode: Path) -> None:
         episode_title="Static",
     )
     client = DummyClient([episode_metadata])
-    renamer = MovieRenamer(
+    renamer = TVRenamer(
         client,
         console=DummyConsole(["1"]),
         rename_format="show_episode",
-        media_mode="tv",
     )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
@@ -201,11 +195,10 @@ def test_show_only_format_respects_selection(tv_episode: Path) -> None:
         episode_title="Static",
     )
     client = DummyClient([episode_metadata])
-    renamer = MovieRenamer(
+    renamer = TVRenamer(
         client,
         console=DummyConsole(["1"]),
         rename_format="show_only",
-        media_mode="tv",
     )
 
     results = renamer.process_directory(tv_episode.parent, dry_run=True, search_limit=5)
